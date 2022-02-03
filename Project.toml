@@ -3,6 +3,23 @@ uuid = "2e2feaf3-8cf3-4c62-867a-fb490429e538"
 authors = ["sidelkin <sidelkin@yandex..ru> and contributors"]
 version = "0.1.0"
 
+[deps]
+AMD = "14f7f29c-3bd6-536c-9a0b-7339e30b5a3e"
+ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+DataFramesMeta = "1313f7d8-7da2-5740-9ea0-a2ca25f37964"
+FiniteDiff = "6a86dc24-6348-571c-b903-95158fe2bd41"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+Metis = "2679e427-3c69-5b7f-982b-ece356f1e94b"
+NLopt = "76087f3c-5699-56af-9a33-bf431cd00edd"
+Optim = "429524aa-4258-5aef-a3af-852621145aeb"
+RecursiveFactorization = "f2c3362d-daeb-58d1-803e-2bc74f2840b4"
+StringEncodings = "69024149-9ee7-55f6-a4c4-859efe599b68"
+UnPack = "3a884ed6-31ef-47d7-9d2a-63182c4928ed"
+Underscores = "d9a01c3f-67ce-4d8c-9b55-35f6e4050bb1"
+
 [compat]
 julia = "1.6"
 
