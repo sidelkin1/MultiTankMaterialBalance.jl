@@ -1,6 +1,6 @@
 name = "MultiTankMaterialBalance"
 uuid = "2e2feaf3-8cf3-4c62-867a-fb490429e538"
-authors = ["sidelkin <sidelkin@yandex..ru> and contributors"]
+authors = ["sidelkin <sidelkin@yandex.ru> and contributors"]
 version = "0.1.0"
 
 [deps]
