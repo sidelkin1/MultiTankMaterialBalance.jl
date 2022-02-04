@@ -22,7 +22,7 @@ function read_rates(path, dateformat)
         :Pres_min => Float64,
         :Pres_max => Float64        
     )
-    df = CSV.File(opencsv(path); dateformat, types) |> DataFrame
+    df = CSV.File(opencsv(path); dateformat, types, pool=false) |> DataFrame
 
     # Убираем веса на пропущенные замеры давлений
     @with df begin
@@ -51,7 +51,7 @@ function read_params(path, dateformat, psyms)
         :Max_value => Float64,
         :alpha => Float64
     )
-    df = CSV.File(opencsv(path); dateformat, types) |> DataFrame
+    df = CSV.File(opencsv(path); dateformat, types, pool=false) |> DataFrame
     
     # Заполняем пропущенные значения
     crit = ismissing.(df.Neighb)

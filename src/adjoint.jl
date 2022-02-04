@@ -16,9 +16,9 @@ end
 
 function solve!(solver::AdjointSolver)
 
-    @unpack μ, g = solver
+    @unpack μ, g, targ = solver
 
-    update_targ!(solver.targ)    
+    update_targ!(targ)    
     fill!(μ, 0)
     for (n, (params, jac, terms...)) ∈ enumerate(solver.itr)
         @unpack jac_next = params

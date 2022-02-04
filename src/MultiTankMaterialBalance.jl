@@ -1,5 +1,8 @@
 module MultiTankMaterialBalance
 
+export psyms, Float, read_rates, read_params, process_params!, init, solve!
+export SparseNewtonAlgorithm, DenseNewtonAlgorithm, NonlinearProblem, FittingSet, TargetFunction, AdjointSolver
+
 using CSV
 using DataFrames
 using DataFramesMeta
