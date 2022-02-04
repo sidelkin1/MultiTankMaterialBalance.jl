@@ -1,86 +1,148 @@
-Base.@kwdef struct FittingParameter{T, S} <: AbstractFittingParameter{T}
-    xviews::VectorView{T}
-    pviews::Vector{RowRange{T}}
-    yviews::CartesianView{T}
+Base.@kwdef struct ParameterValidity{A<:AbstractArray{<:Real}}
+    V::A
 end
 
-Base.@kwdef struct FittingSet{T<:AbstractFloat, P<:Vector{<:AbstractFittingParameter{T}}}
-    params::P
-    xmodel::Vector{T}
-    xoptim::Vector{T}
-    xrange::Vector{T}
-    xmin::Vector{T}
+Base.@kwdef struct FittingParameter{S, T} <: AbstractFittingParameter{T} 
+    xviews::VectorRange{T}                              # ссылки на частичный диапазон глобального вектора параметров
+    pviews::Vector{RowRange{T}}                         # ссылки на внутренний массив параметров модели (на весь периода закрепеления)
+    yviews::CartesianView{T}                            # ссылки на внутренний массив параметров модели (на начало периода закрепеления)
+    valids::ParameterValidity{BitMatrix}                # массив периодов закрепления параметра
+    vviews::Vector{ParameterValidity{ColumnSliceBool}}  # ссылки на столбцы массива периода действия параметра
+    gviews::VectorRange{T}                              # ссылки на частичный диапазон глобального вектора градиента
+    bviews::VectorView{T}                               # ссылки на расчетный буфер 1
+    bviews2::VectorView{T}                              # ссылки на расчетный буфер 2
+end
+
+Base.@kwdef struct FittingCache{T<:AbstractFloat}
+    xbuf::Vector{T}
+    ybuf::Vector{T}
+    gbuf::Vector{T}
+    tbuf::Vector{T}
+    tbuf2::Vector{T}
+    cbuf::Vector{T}
+    cbuf2::Vector{T}
+end
+
+Base.@kwdef struct FittingSet{T<:AbstractFloat, PS<:AbstractParametersScaling{T}, TP<:Tuple{Vararg{<:AbstractFittingParameter{T}}}}
+    params::TP
+    scale::PS
     α::Vector{T}
+    cache::FittingCache{T}
 end
 
-function build_fitting_views(df::AbstractDataFrame, prob::NonlinearProblem, sym::Symbol)
-    P = getfield(prob.params, sym)
+function build_fitting_views(df::AbstractDataFrame, prob::NonlinearProblem, ::Val{S}) where {S}
+    P = getfield(prob.params, S)
     @with df begin (
         pviews = view.(Ref(P), :Istart, UnitRange.(:Jstart, :Jstop)),
         yviews = view(P, CartesianIndex.(:Istart, :Jstart)),
     ) end
 end
 
-function FittingSet{T}(df_params::AbstractDataFrame, prob::NonlinearProblem{T}) where {T}
-    
-    # Вектор параметров для настройки
-    N = sum(.!df_params.Skip::Vector{Bool})
-    xmodel = Array{T}(undef, N)
-    xoptim = Array{T}(undef, N)
-
-    # Масштабные множители для параметров
-    df = @view df_params[df_params.Skip .=== false, :]
-    xrange = @with(df, :Max_value - :Min_value)
-    xmin = @with(df, @. -:Min_value / xrange)
-    α = df[:, :alpha]
-
-    # Разбивка по параметрам, требующих настройки (Skip == false)
-    gd = @chain df_params begin
-        @subset(:Skip .=== false)
-        @select(:Parameter, :Istart, :Jstart, :Jstop)            
-        groupby(_, :Parameter)
+function build_validity_matrix(df::AbstractDataFrame, N, M)
+    V = falses(N, M)
+    for (v, dfr) ∈ zip(eachrow.((V, df))...)
+        v[UnitRange(dfr.Jstart, dfr.Jstop)] .= true
     end
-
-    # Ссылки (views) для настраиваемых параметров
-    stop = 0
-    params = map(pairs(gd)) do (key, df)
-        # Название параметра
-        sym = key.Parameter
-
-        # Срез глобального вектора параметров
-        start = stop + 1
-        stop = start + nrow(df) - 1        
-        xviews = view(xmodel, start:stop)
-
-        # Ссылки на параметры внутри модели
-        pviews, yviews = build_fitting_views(df, prob, sym)
-        FittingParameter{T, sym}(; xviews, pviews, yviews)
-    end
-
-    FittingSet{T, typeof(params)}(; params, xmodel, xoptim, xrange, xmin, α)
+    params_and_views(ParameterValidity, (V = V,))
 end
 
-function getparams(fset::FittingSet)
-    @unpack xmodel, xoptim, xrange, xmin = fset
-    for params ∈ fset.params
-        @unpack xviews, yviews = params        
+function FittingCache{T}(Nt, Nc, Nx) where {T}
+    kwargs = (
+        xbuf = Array{T}(undef, Nx),
+        ybuf = Array{T}(undef, Nx),
+        gbuf = Array{T}(undef, Nx),
+        tbuf = Array{T}(undef, Nt),
+        tbuf2 = Array{T}(undef, Nt),
+        cbuf = Array{T}(undef, Nc),
+        cbuf2 = Array{T}(undef, Nc),
+    )
+    FittingCache{T}(kwargs...)
+end
+
+function FittingParameter{S, T}(df::AbstractDataFrame, prob::NonlinearProblem{T}, cache::FittingCache{T}, rng) where {S, T}
+    
+    # Кол-во временных шагов
+    Nd = length(prob.pviews)
+
+    # Расчетные буферы
+    idx = df[:, :Istart]
+    if S === :Tconn 
+        bviews = view(cache.cbuf, idx)
+        bviews2 = view(cache.cbuf2, idx)
+    else
+        bviews = view(cache.tbuf, idx)
+        bviews2 = view(cache.tbuf2, idx)
+    end
+
+    # Ссылки на глобальные векторы
+    xviews = view(cache.ybuf, rng)
+    gviews = view(cache.gbuf, rng)        
+
+    # Ссылки на параметры внутри модели
+    pviews, yviews = build_fitting_views(df, prob, Val(S))
+    # Периоды закрепления параметров
+    valids, vviews = build_validity_matrix(df, nrow(df), Nd)
+
+    FittingParameter{S, T}(; pviews, yviews, valids, vviews, bviews, bviews2, xviews, gviews)
+end
+
+function FittingSet{T}(df_params::AbstractDataFrame, prob::NonlinearProblem{T}, scale::AbstractParametersScaling{T}) where {T}
+
+    # Число соединений и блоков
+    Nc, Nt = size(prob.C)
+
+    # Фильтруем параметры, требующие настройки (Skip == false)
+    df = @view df_params[df_params.Skip .=== false, :]
+    cache = FittingCache{T}(Nt, Nc, nrow(df))
+    α = df[:, :alpha]
+    
+    stop = 0
+    # FIXED: Сам по себе 'map' для 'GroupedDataFrame' 
+    # невозможен (reserved), но можно по 'pairs(..)'
+    gd = groupby(df, :Parameter)
+    params = map(pairs(gd)) do (key, df)
+        sym = key.Parameter
+        start = stop + 1
+        stop += nrow(df)
+        FittingParameter{sym, T}(df, prob, cache, start:stop)        
+    end |> Tuple
+
+    FittingSet{T, typeof(scale), typeof(params)}(; params, scale, α, cache)
+end
+
+function getparams!(fset::FittingSet)
+    @unpack params, scale = fset
+    @unpack xbuf, ybuf = fset.cache
+
+    # FIXED: Использование 'map' вместо 'for' сохраняет 'type-stability'
+    map(params) do param
+        @unpack xviews, yviews = param    
         copyto!(xviews, yviews)        
     end
-    @. xoptim = xmin + xmodel / xrange
-    return xoptim
+    scalex!(xbuf, ybuf, scale)
+
+    return xbuf
 end
 
-function getparams!(x, fset::FittingSet)
-    copyto!(x, getparams(fset))    
+function getparams!!(x, fset::FittingSet)
+    copyto!(x, getparams!(fset))    
 end
 
-function setparams!(fset::FittingSet, xnew)
-    @unpack xmodel, xoptim, xrange, xmin = fset    
-    copyto!(fset.xoptim, xnew)
-    @. xmodel = (xoptim - xmin) * xrange
-    for params ∈ fset.params
-        @unpack xviews, pviews = params        
-        fill!.(pviews, xviews)
+function setparams!(fset::FittingSet, xnew)    
+    @unpack params, scale = fset
+    @unpack xbuf, ybuf = fset.cache
+
+    copyto!(xbuf, xnew)
+    unscalex!(ybuf, xbuf, scale)
+
+    # FIXED: Использование 'map' вместо 'for' сохраняет 'type-stability'
+    map(params) do param
+        @unpack xviews, pviews = param
+        # FIXED: Быстрее, чем 'fill!.(pviews, xviews)'
+        @inbounds @simd for i = 1:length(xviews)
+            fill!(pviews[i], xviews[i])
+        end
     end
-    return xnew
+
+    return ybuf
 end

@@ -1,28 +1,20 @@
-function solve!(prob::NonlinearProblem, alg::AbstractSolveAlgorithm, args...; kwargs...)
-    solver = init(prob, alg, args...; kwargs...)
-    solve!(solver)
-end
+function solve!(solver::AbstractNonlinearSolver; verbose=false)
 
-function solve!(solver::AbstractNonlinearSolver)
+    @unpack P, prob, linalg = solver    
+    init_values!(P, prob)
 
-    @unpack P = solver
-    params = solver.prob.pviews[1]
-    copyto!(P, params.Pi)
-    init_cache!(solver.cache, params)
-
-    for (n, params) ∈ enumerate(solver.itr)
-
-        update_cache!(solver.cache, params, solver.prob.C, P) 
-        perform_step!(solver, solver.alg, params)
+    for n = 2:length(prob.pviews)
+        prepare_step!(prob, n, P) 
+        perform_step!(solver, n)
        
-        @printf "n: %d, " n
-        @printf "iter: %d, " solver.iter
-        @printf "norm_r: %.5e, " solver.norm_r
-        @printf "dP_rel: %.5e\n" solver.dP_rel 
+        if verbose
+            @printf "n: %d, " n
+            @printf "iter: %d, " solver.iter
+            @printf "norm_r: %.5e, " solver.norm_r
+            @printf "dP_rel: %.5e\n" solver.dP_rel
+        end
         
-        update_params!(params, solver.cache, P)
-        @inbounds solver.prob.jacs[n] = copy(solver.F)
-
+        accept_step!(prob, n, P)
         solver.success || break      
     end
     solver.success || error("Newton solver did not converge")
@@ -30,69 +22,96 @@ function solve!(solver::AbstractNonlinearSolver)
     return solver
 end
 
-function init_cache!(cache::ProblemCache, params::ModelParameters)
+function init_values!(P, prob::NonlinearProblem)
 
-    @unpack Vpi, Swi, Bwi, Boi = params
-    @unpack Vwprev, Voprev = cache
-
-    # Поровые объемы на нулевом временном шаге
-    @fastmath @. Vwprev = Swi * Vpi / Bwi
-    @fastmath @. Voprev = (1 - Swi) * Vpi / Boi
-
-    return cache
-end
-
-function update_cache!(cache::ProblemCache, params::ModelParameters, C, P)
-
-    @unpack cw, co, cf, Vpi, Swi, Bwi, Boi, Pmin, Pmax, Tconst = params
-    @unpack Tconn, Qliq, Qinj, Qwat_h, Qoil_h, Qinj_h, λ = params
-    @unpack Vwi, Voi, diagCTC, CTC, idx, cwf, cof, Qsum = cache
-
-    # Нач. поровые объемов флюидов в пов. усл.
-    @fastmath @. Vwi = Swi * Vpi / Bwi
-    @fastmath @. Voi = (1 - Swi) * Vpi / Boi
-   
-    # Коррекция отборов с учетом верх. и ниж. границ Рпл
-    @fastmath @. Qliq = (P ≥ Pmin) * (Qwat_h + Qoil_h)
-    @fastmath @. Qinj = (P ≤ Pmax) * Qinj_h
-    @fastmath @. Qsum = Qliq - λ * Qinj     
-
-    # Суммарные сжимаемости системы пласт-флюид
-    @fastmath @. cwf = cw + cf
-    @fastmath @. cof = co + cf
+    @unpack Pi, Pcalc, Pbhp, Pinj = @inbounds prob.pviews[1]
+    @unpack Vwprev, Voprev, Vwi, Voi = prob.cache    
     
-    # Элементы якобиана на тек. временном шаге, не зависящие от Рпл 
-    CTC .= C' * Diagonal(Tconn) * C
-    copyto!(diagCTC, view(CTC, idx))
-    @fastmath @. diagCTC += Tconst
+    # Инициализация на нулевом временном шаге
+    update_cache!(prob, 1)
+    @inbounds @simd for i = 1:length(Pi)
+        P[i] = Pcalc[i] = Pbhp[i] = Pinj[i] = Pi[i]
+        Vwprev[i] = Vwi[i]
+        Voprev[i] = Voi[i]
+    end    
 
-    return cache, params
+    return P, prob
 end
 
-function update_params!(params::ModelParameters, cache::ProblemCache, P)
+function prepare_step!(prob::NonlinearProblem, n, P)
 
+    params = @inbounds prob.pviews[n]
+    @unpack Pmin, Pmax, Qliq, Qinj, Qwat_h, Qoil_h, Qinj_h, λ = params    
+    @unpack Qsum = prob.cache
+
+    update_cache!(prob, n)
+    @inbounds @simd for i = 1:length(P)   
+        # Коррекция отборов с учетом верх. и ниж. границ Рпл
+        Qliq[i] = (P[i] ≥ Pmin[i]) * (Qwat_h[i] + Qoil_h[i])
+        Qinj[i] = (P[i] ≤ Pmax[i]) * Qinj_h[i]
+        Qsum[i] = Qliq[i] - λ[i] * Qinj[i]    
+    end
+    
+    return prob
+end
+
+function accept_step!(prob::NonlinearProblem, n, P)
+
+    params = params = @inbounds prob.pviews[n]
     @unpack jac_next, Pcalc, Qliq, Jp, Pbhp, λ, Qinj, Jinj, Pinj = params
-    @unpack Vwprev, Voprev, Vw, Vo, cwf, cof = cache
+    @unpack Vwprev, Voprev, Vw, Vo, cwf, cof = prob.cache
 
     # Сохраняем данные на текущем временном шаге
     copyto!(Pcalc, P)
     copyto!(Vwprev, Vw)
     copyto!(Voprev, Vo)
 
-    # Якобиан относительно Рпл на пред. временном шаге
-    @fastmath @. jac_next = -(Vw * cwf + Vo * cof)
+    @inbounds @simd for i = 1:length(P)
+        # Якобиан относительно Рпл на пред. временном шаге
+        jac_next[i] = -(Vw[i] * cwf[i] + Vo[i] * cof[i])
 
-    # Забойные давления
-    @fastmath @. Pbhp = P - Qliq / Jp
-    @fastmath @. Pinj = P + λ * Qinj / Jinj
+        # Забойные давления
+        Pbhp[i] = P[i] - Qliq[i] / Jp[i]
+        Pinj[i] = P[i] + λ[i] * Qinj[i] / Jinj[i]
+    end
 
-    return params, cache
+    return prob
 end
 
-function Base.getproperty(obj::AbstractNonlinearSolver, sym::Symbol)
-    if sym === :itr
-        return obj.prob.pviews
-    else # fallback to getfield
-        return getfield(obj, sym)
+function update_cache!(prob::NonlinearProblem{T}, n) where {T}
+
+    params = @inbounds prob.pviews[n]
+
+    # Начальные поровые объемы флюидов
+    if params.Vupd[]
+        @unpack Vpi, Swi, Bwi, Boi = params
+        @unpack Vwi, Voi = prob.cache
+        @inbounds @simd for i = 1:length(Vpi)
+            Vwi[i] = Swi[i] * Vpi[i] / Bwi[i]
+            Voi[i] = (one(T) - Swi[i]) * Vpi[i] / Boi[i]
+        end
     end
+
+    # Элементы якобиана, не зависящие от Рпл
+    if params.Tupd[]
+        @unpack Tconn = params
+        @unpack CTC, Cbuf = prob.cache
+        # copyto!(Cbuf, prob.C)
+        # lmul!(Diagonal(Tconn), Cbuf)
+        # mul!(CTC, prob.C', Cbuf)
+        # FIXED: Для разреженной матрицы 'C' конструкция ниже оказывается быстрее
+        CTC .= prob.C' * Diagonal(Tconn) * prob.C
+    end
+
+    # Суммарные сжимаемости системы пласт-флюид
+    if params.cupd[]
+        @unpack cw, co, cf = params
+        @unpack cwf, cof = prob.cache        
+        @inbounds @simd for i = 1:length(cf)
+            cwf[i] = cw[i] + cf[i]
+            cof[i] = co[i] + cf[i]
+        end
+    end
+
+    return prob
 end

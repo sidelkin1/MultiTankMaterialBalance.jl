@@ -1,3 +1,27 @@
+import UnPack
+
+opencsv(path) = open(read, path, CSV_ENC)
+
+# FIXED: Переделанная версия '@unpack' с возможностью добавления суффикса к названию переменных
+macro unpack(args)
+    args.head != :(=) && error("Expression needs to be of form `a, b = c`")
+    items, suitecase = args.args    
+    items = isa(items, Symbol) ? [items] : items.args
+    suffix, items... = isa(first(items), AbstractString) ? items : ("", items...)
+    suitecase_instance = gensym()
+    kd = map(items) do key
+        var = Symbol(string(key) * suffix)
+        :( $var = $UnPack.unpack($suitecase_instance, Val{$(Expr(:quote, key))}()) )
+    end
+    kdblock = Expr(:block, kd...)
+    expr = quote
+        local $suitecase_instance = $suitecase # handles if suitecase is not a variable but an expression
+        $kdblock
+        $suitecase_instance # return RHS of `=` as standard in Julia
+    end
+    esc(expr)
+end
+
 x_abschange(x, x_previous) = maxdiff(x, x_previous)
 maxdiff(x, y) = mapreduce((a, b) -> abs(a - b), max, x, y)
 

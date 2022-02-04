@@ -1,6 +1,4 @@
-opencsv(path) = open(read, path, enc"WINDOWS-1251")
-
-function read_rates(path, dateformat)
+function read_rates(path, opts)
     
     types = Dict(
         :Field => String,
@@ -16,13 +14,15 @@ function read_rates(path, dateformat)
         :Pbhp_inj => Float64,
         :Source_bhp => String,
         :Wellwork => String,
+        :Wcut => Float64,
         :Wres => Float64,
         :Wbhp_prod => Float64,
         :Wbhp_inj => Float64,
         :Pres_min => Float64,
         :Pres_max => Float64        
     )
-    df = CSV.File(opencsv(path); dateformat, types, pool=false) |> DataFrame
+    # TODO: Принудительно убрано преобразование столбцов в 'PooledArray' (хотя неэффективно с точки зрения памяти)
+    df = CSV.File(opencsv(path); dateformat=opts["dateformat"], types, pool=false) |> DataFrame
 
     # Убираем веса на пропущенные замеры давлений
     @with df begin
@@ -37,7 +37,7 @@ function read_rates(path, dateformat)
     return df
 end
 
-function read_params(path, dateformat, psyms)
+function read_params(path, opts)
 
     types = Dict(
         :Field => String,
@@ -51,7 +51,8 @@ function read_params(path, dateformat, psyms)
         :Max_value => Float64,
         :alpha => Float64
     )
-    df = CSV.File(opencsv(path); dateformat, types, pool=false) |> DataFrame
+    # TODO: Принудительно убрано преобразование столбцов в 'PooledArray' (хотя неэффективно с точки зрения памяти)
+    df = CSV.File(opencsv(path); dateformat=opts["dateformat"], types, pool=false) |> DataFrame
     
     # Заполняем пропущенные значения
     crit = ismissing.(df.Neighb)
@@ -61,9 +62,9 @@ function read_params(path, dateformat, psyms)
 
     # Преобразуем 'String' в 'Symbol'
     df.Parameter = Symbol.(df.Parameter)
-    replace!(df.Parameter, psyms...)
+    replace!(df.Parameter, PSYMS...)
 
-    # Коэффициент регуляризации на параметры 
+    # Коэффициент регуляризации на параметры (по умолчанию 0, если не задан)
     df.alpha = replace(df.alpha, missing => zero(types[:alpha]))
 
     # Сортируем по датам
@@ -80,6 +81,16 @@ function mark_null_params!(df_params, name, isnull)
         :Skip | all(isnull[rows, :Istart::Int])
     end
     return df_params
+end
+
+function set_null_weights!(weight, df_params, name)
+    df = @subset(df_params, :Parameter .=== name, :Skip .=== true)
+    @with df @byrow begin
+        rows = UnitRange(:Jstart::Int, :Jstop::Int)
+        # TODO: Выбрано умножение для 'missing propagation',
+        # т.е. (missing * число === missing)
+        weight[rows, :Istart::Int] .*= zero(eltype(weight))
+    end
 end
 
 function process_params!(df_params, df_rates)
@@ -111,6 +122,11 @@ function process_params!(df_params, df_rates)
         :Jstop = [:Jstart[2:end] .- 1; N]
     end
 
+    # TODO: Дополнительно дробим (если требуется) интервалы закрепления 'Jinj',
+    # чтобы внутри каждого интервале значение 'λ' не менялось бы.
+    # Это значительно упрощает дифференцирование целевой функции по 'P'
+    split_params!(df_params, :λ, :Jinj)
+
     # Помечаем параметры, не требующие настройки
     @transform! df_params begin
         :Skip = :Min_value .== :Max_value
@@ -131,5 +147,90 @@ function process_params!(df_params, df_rates)
         mark_null_params!(df_params, key, reshape(values, N, :))
     end
 
-    return df_params
+    # TODO: Принудительно зануляются веса замеров для неизменяемых 
+    # параметров, а значит они не будут включаться в расчет целевой функции.
+    # Такое поведение может оказаться не приемлемым, если нам точно известно 
+    # значение параметра 'Jp' (т.е. он должен быть фиксированным), но при этом
+    # требуется подгонка профиля 'P' под фактические профили 'Qliq' и 'Pbhp'
+    crits = @with df_rates begin (
+        Jp = :Wbhp_prod,
+        Jinj = :Wbhp_inj,
+    ) end
+    for (key, values) ∈ pairs(crits)
+        set_null_weights!(reshape(values, N, :), df_params, key)
+    end
+
+    return df_params, df_rates
+end
+
+function save_rates!(df::AbstractDataFrame, prob::NonlinearProblem, path, opts)
+
+    @transform! df begin
+        :Pres_calc = vec(prob.params.Pcalc')
+        :Pbhp_calc = vec(prob.params.Pbhp')
+        :Pinj_calc = vec(prob.params.Pinj')
+        :Prod_index = vec(prob.params.Jp')
+        :Inj_index = vec(prob.params.Jinj')
+        :Frac_inj = vec(prob.params.λ')
+        :Tot_mobility = missing
+        :Prod_index_adj = missing
+    end
+
+    open(path, CSV_ENC, "w") do io
+        CSV.write(io, df; delim=opts["delim"], dateformat=opts["dateformat"])
+    end
+
+    return df
+end
+
+function save_params!(df::AbstractDataFrame, fset::FittingSet, path, opts)
+
+    @transform!(df, :Calc_value = :Init_value)
+    df_view = @view df[df.Skip .=== false, :]
+    copyto!(df_view.Calc_value, fset.cache.ybuf)    
+
+    replace!(df.Parameter, reverse.(PSYMS)...)
+    select!(df, Not([:Istart, :Jstart, :Jstop, :Skip])) 
+
+    open(path, CSV_ENC, "w") do io
+        CSV.write(io, df; delim=opts["delim"], dateformat=opts["dateformat"])
+    end
+
+    return df
+end
+
+function split_params!(df::AbstractDataFrame, src::Symbol, dst::Symbol)
+    df_src = @view df[df.Parameter .=== src, :]
+    df_dst = @view df[df.Parameter .=== dst, :]
+
+    df_new = map(eachrow(df_dst)) do dfr
+        # Критерий пересечения интервалов
+        crit = @with df_src begin
+            @. (dfr.Istart == :Istart) & 
+                (
+                    ((dfr.Jstart >= :Jstart) & 
+                        (dfr.Jstart <= :Jstop))
+                    |
+                    ((dfr.Jstart <= :Jstart) & 
+                        (dfr.Jstop >= :Jstart))
+                )
+        end        
+        # Разбивка с учетом критерия пересечения
+        @transform! df_src[crit, :] begin
+            # Дублируем частично информацию 
+            :Parameter = dfr.Parameter
+            :Init_value = dfr.Init_value
+            :Min_value = dfr.Min_value
+            :Max_value = dfr.Max_value
+            :alpha = dfr.alpha
+            # Корректируем начало и конец периода закрепления
+            :Date = [dfr.Date; :Date[2:end]]
+            :Jstart = [dfr.Jstart; :Jstart[2:end]]
+            :Jstop = [:Jstop[1:end-1]; dfr.Jstop]
+        end
+    end |> items -> vcat(items...)
+
+    # Формируем новый список интервалов закрепления
+    delete!(df, df.Parameter .=== dst)
+    append!(df, df_new)
 end

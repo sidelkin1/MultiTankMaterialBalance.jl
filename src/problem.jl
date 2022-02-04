@@ -1,4 +1,4 @@
-Base.@kwdef struct ModelParameters{A<:AbstractArray{<:AbstractFloat}}
+Base.@kwdef struct ModelParameters{A<:AbstractArray{<:AbstractFloat}, B<:AbstractArray{<:Bool}}
     Tconn::A
     Pi::A
     Bwi::A
@@ -23,13 +23,30 @@ Base.@kwdef struct ModelParameters{A<:AbstractArray{<:AbstractFloat}}
     jac_next::A
     Pbhp::A
     Pinj::A
+    Tupd::B
+    Vupd::B
+    cupd::B
 end
 
-Base.@kwdef struct NonlinearProblem{T<:AbstractFloat}    
-    params::ModelParameters{Matrix{T}}
+Base.@kwdef struct ProblemCache{T<:AbstractFloat}
+    Vw::Vector{T}
+    Vo::Vector{T}
+    Vwprev::Vector{T}
+    Voprev::Vector{T}
+    Vwi::Vector{T}
+    Voi::Vector{T}
+    cwf::Vector{T}
+    cof::Vector{T}
+    Qsum::Vector{T}
+    CTC::SparseMatrixCSC{T, Int}
+    Cbuf::SparseMatrixCSC{T, Int}
+end
+
+Base.@kwdef struct NonlinearProblem{T<:AbstractFloat}
+    params::ModelParameters{Matrix{T}, BitMatrix}    
+    pviews::Vector{ModelParameters{ColumnSlice{T}, ColumnSliceBool}}
     C::SparseMatrixCSC{T, Int}
-    pviews::Vector{ModelParameters{ColumnSlice{T}}}
-    jacs::Vector{SuiteSparse.CHOLMOD.Factor}
+    cache::ProblemCache{T}
 end
 
 function build_incidence_matrix(::Type{T}, df_params) where {T}
@@ -66,18 +83,27 @@ function build_parameter_matrix(::Type{T}, df_params, name, N, M) where {T}
     return A
 end
 
+function build_update_matrix(::Type{T}, df_params, names, M) where {T}
+    A = falses(1, M)
+    for name ∈ names
+        df = @view df_params[df_params.Parameter .=== name, :]
+        A[df.Jstart] .= true
+    end
+    return A
+end
+
 function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDataFrame) where {T}
     
     # Формируем матрицу смежности
     C = build_incidence_matrix(T, df_params)    
     # Число соединений и блоков
-    (Nc, Nt) = size(C)
+    Nc, Nt = size(C)
     # Число временных шагов
     Nd = (length∘unique)(df_rates.Date::Vector{Date})
     
     # Формируем матрицы параметров и отборов
     kwargs = (
-        # Фиксированные параметры модели
+        # Исходные параметры модели
         Tconn = build_parameter_matrix(T, df_params, :Tconn, Nc, Nd),
         Pi = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
         Bwi = build_parameter_matrix(T, df_params, :Bwi, Nt, Nd),
@@ -96,6 +122,12 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         Qoil_h = build_rate_matrix(T, df_rates.Qoil, Nt, Nd),
         Qwat_h = build_rate_matrix(T, df_rates.Qwat, Nt, Nd),
         Qinj_h = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),
+
+        # Флаги обновления буферов
+        Tupd = build_update_matrix(T, df_params, (:Tconn,), Nd),
+        Vupd = build_update_matrix(T, df_params, (:Vpi, :Bwi, :Boi, :Swi), Nd),
+        cupd = build_update_matrix(T, df_params, (:cw, :co, :cf), Nd),
+        
         # Вычисляемые параметры модели
         Pcalc = Array{T}(undef, Nt, Nd),
         Qliq = Array{T}(undef, Nt, Nd),
@@ -105,28 +137,12 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         Pinj = Array{T}(undef, Nt, Nd),
     )
 
-    params, pviews = params_and_views(ModelParameters, kwargs)
-    jacs = map(_ -> cholesky(spdiagm(ones(T, Nt))), 1:Nd)
-    NonlinearProblem{T}(; params, C, pviews, jacs)
+    params, pviews = params_and_views(ModelParameters, kwargs)    
+    cache = ProblemCache{T}(Nt, Nc)
+    NonlinearProblem{T}(; params, C, pviews, cache)
 end
 
-Base.@kwdef struct ProblemCache{T<:AbstractFloat}
-    Vw::Vector{T}
-    Vo::Vector{T}
-    Vwprev::Vector{T}
-    Voprev::Vector{T}
-    Vwi::Vector{T}
-    Voi::Vector{T}
-    cwf::Vector{T}
-    cof::Vector{T}
-    Qsum::Vector{T}
-    CTC::SparseMatrixCSC{T, Int}
-    diagCTC::Vector{T}
-    idx::Vector{Int}
-end
-
-function ProblemCache{T}(prob::NonlinearProblem{T}) where {T}
-    Nt = size(prob.params.Pcalc, 1)
+function ProblemCache{T}(Nt, Nc) where {T}
     kwargs = (
         Vw = Array{T}(undef, Nt),
         Vo = Array{T}(undef, Nt),
@@ -138,30 +154,35 @@ function ProblemCache{T}(prob::NonlinearProblem{T}) where {T}
         cof = Array{T}(undef, Nt),
         Qsum = Array{T}(undef, Nt),
         CTC = spzeros(T, Nt, Nt),
-        diagCTC = Array{T}(undef, Nt),    
+        Cbuf = spzeros(T, Nc, Nt),        
     )
-    idx = diagind(kwargs.CTC)
-    ProblemCache{T}(; kwargs..., idx)
+    ProblemCache{T}(; kwargs...)
 end
 
-function val_and_jac!(r, J, P, cache::ProblemCache, params::ModelParameters)
+function val_and_jac!(r, J, P, prob::NonlinearProblem, n)
 
-    @unpack Vwprev, Voprev, Vw, Vo = cache
-    @unpack CTC, diagCTC, idx = cache
-    @unpack Vwi, Voi, cwf, cof, Qsum = cache
+    params = @inbounds prob.pviews[n]
+    @unpack Vwprev, Voprev, Vw, Vo, CTC = prob.cache    
+    @unpack Vwi, Voi, cwf, cof, Qsum = prob.cache
     @unpack Pi, Tconst = params
 
-    # Поровые объемы воды и нефти в пов. усл.
-    @fastmath @. Vw = Vwi * exp(cwf * (P - Pi))
-    @fastmath @. Vo = Voi * exp(cof * (P - Pi))
-    
-    # Обновляем вектор невязки до выполнения условия ∥r∥ ≈ 0
+    # Инициализация невязки и якобиана
     mul!(r, CTC, P)
-    @fastmath @. r += Vw - Vwprev + Vo - Voprev + Tconst * (P - Pi) + Qsum
-    
-    # В целом, якобиан статичен за исключение диагональных элементов
-    J .= CTC
-    @fastmath @inbounds @. J[idx] = diagCTC + Vw * cwf + Vo * cof
+    copyto!(J, CTC)
+
+    @inbounds @simd for i = 1:length(P)
+        # Поровые объемы воды и нефти в пов. усл.
+        Vw[i] = Vwi[i] * exp(cwf[i] * (P[i] - Pi[i]))
+        Vo[i] = Voi[i] * exp(cof[i] * (P[i] - Pi[i]))
+
+        # Обновляем вектор невязки до выполнения условия ∥r∥ ≈ 0
+        r[i] += Vw[i] - Vwprev[i] 
+        r[i] += Vo[i] - Voprev[i] 
+        r[i] += Tconst[i] * (P[i] - Pi[i]) + Qsum[i]
+
+        # В целом, якобиан статичен за исключением диагональных элементов
+        J[i, i] += Tconst[i] + Vw[i] * cwf[i] + Vo[i] * cof[i]
+    end    
 
     return r, J
 end
