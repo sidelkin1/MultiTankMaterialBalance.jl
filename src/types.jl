@@ -2,7 +2,8 @@ const PSYMS = (
     :Tconn => :Tconn, :Pi => :Pi, :Bwi => :Bwi, :Boi => :Boi, 
     :cw => :cw, :co => :co, :cf => :cf, :Swi => :Swi, :Vpi => :Vpi, 
     :Tconst => :Tconst, :Prod_index => :Jp, :Inj_index => :Jinj, 
-    :Frac_inj => :λ, :Min_Pres => :Pmin, :Max_Pres => :Pmax,
+    :Frac_inj => :λ, :Min_Pres => :Pmin, :Max_Pres => :Pmax, 
+    :Geom_factor => :Gw, :Total_mobility => :M,
 )
 
 const CSV_ENC = enc"WINDOWS-1251"

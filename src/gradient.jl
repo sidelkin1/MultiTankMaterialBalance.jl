@@ -124,17 +124,17 @@ function grad!(cache::FittingCache, param::FittingParameter{:λ, T}, prob::Nonli
     return cache
 end
 
-function grad!(cache::FittingCache, param::FittingParameter{:Jp, T}, prob::NonlinearProblem, targ::TargetFunction, μ, n) where {T}    
+function grad!(cache::FittingCache, param::FittingParameter{:Gw, T}, prob::NonlinearProblem, targ::TargetFunction, μ, n) where {T}    
     
     @unpack gviews, bviews = param    
     @unpack V = @inbounds param.vviews[n]
-    @unpack Qliq, Pbhp, Jp = @inbounds prob.pviews[n]
+    @unpack Qliq, Pbhp, Gw, M = @inbounds prob.pviews[n]
     @unpack Wnan, Wobs, Pobs = @inbounds targ.terms.Pbhp.pviews[n]
     @unpack α = targ.terms.Pbhp
     @unpack tbuf = cache
 
     @inbounds @simd for i = 1:length(tbuf)
-        tbuf[i] = Wnan[i] * (T(2) * α * Qliq[i] * Wobs[i] * (Pbhp[i] - Pobs[i])) / Jp[i]^2
+        tbuf[i] = Wnan[i] * (T(2) * α * Qliq[i] * Wobs[i] * (Pbhp[i] - Pobs[i])) / (M[i] * Gw[i]^2)
     end
     @inbounds @simd for i = 1:length(bviews)
         gviews[i] = bviews[i] * V[i]

@@ -16,6 +16,7 @@ function read_rates(path, opts)
         :Source_bhp => String,
         :Wellwork => String,
         :Wcut => Float64,
+        :Total_mobility => Float64,
         :Wres => Float64,
         :Wbhp_prod => Float64,
         :Wbhp_inj => Float64,
@@ -156,35 +157,50 @@ function process_params!(df_params::AbstractDataFrame, df_rates::AbstractDataFra
         set_null_weights!(reshape(values, N, :), df_params, key)
     end
 
+    # Добавляем вместо Кпрод геом. факторы скважин для настройки
+    crits = @with df_rates begin (
+        Jp = :Total_mobility,
+    ) end
+    for (key, values) ∈ pairs(crits)
+        add_geom_factor!(df_params, key, reshape(values, N, :))
+    end
+
     return df_params, df_rates
 end
 
-function save_rates!(df_rates::AbstractDataFrame, prob::NonlinearProblem, path, opts)
+function save_rates!(df::AbstractDataFrame, prob::NonlinearProblem, path, opts)
 
-    @transform! df_rates begin
+    @transform! df begin
         :Pres_calc = vec(prob.params.Pcalc')
         :Pbhp_calc = vec(prob.params.Pbhp')
         :Pinj_calc = vec(prob.params.Pinj')
-        :Prod_index = vec(prob.params.Jp')
+        :Geom_factor = vec(prob.params.Gw')
+        :Prod_Index = vec((prob.params.Gw .* prob.params.M)')
         :Inj_index = vec(prob.params.Jinj')
         :Frac_inj = vec(prob.params.λ')
-        :Tot_mobility = missing
-        :Prod_index_adj = missing
+        :Qliq_calc = vec(prob.params.Qliq')
+        :Qinj_calc = vec((prob.params.Qinj .* prob.params.λ)')
     end
 
     open(path, CSV_ENC, "w") do io
-        CSV.write(io, df_rates; delim=opts["delim"], dateformat=opts["dateformat"])
+        CSV.write(io, df; delim=opts["delim"], dateformat=opts["dateformat"])
     end
 
-    return df_rates
+    return df
 end
 
 function save_params!(df::AbstractDataFrame, fset::FittingSet, path, opts)
 
     @transform!(df, :Calc_value = :Init_value)    
     df_view = @view df[.!(df.Const .| df.Ignore), :]
-    copyto!(df_view.Calc_value, fset.cache.ybuf)    
+    copyto!(df_view.Calc_value, fset.cache.ybuf)
 
+    # Преобразуем геом. факторы => Кпрод
+    df_geom = @view df[df.Parameter .=== :Gw, :]
+    df_mobt = @view df[df.Parameter .=== :M, :]
+    df_pi = @view df[df.Parameter .=== :Jp, :]
+    @. df_pi.Calc_value = df_geom.Calc_value * df_mobt.Calc_value
+    
     replace!(df.Parameter, reverse.(PSYMS)...)
     select!(df, Not([:Istart, :Jstart, :Jstop, :Const, :Ignore])) 
 
@@ -196,6 +212,7 @@ function save_params!(df::AbstractDataFrame, fset::FittingSet, path, opts)
 end
 
 function split_params!(df::AbstractDataFrame, src::Symbol, dst::Symbol)
+
     df_src = @view df[df.Parameter .=== src, :]
     df_dst = @view df[df.Parameter .=== dst, :]
 
@@ -229,4 +246,68 @@ function split_params!(df::AbstractDataFrame, src::Symbol, dst::Symbol)
     # Формируем новый список интервалов закрепления
     delete!(df, df.Parameter .=== dst)
     append!(df, df_new)
+
+    return df
+end
+
+function add_geom_factor!(df::AbstractDataFrame, name::Symbol, mobt)
+       
+    # Копируем Кпрод для расчета геом. фактора
+    df_new = df[df.Parameter .=== name, :]
+
+    # Рассчитываем геом. факторы скважин
+    @eachrow! df_new begin
+        @newcol :Minit::Vector{eltype(mobt)}
+        @newcol :Mmin::Vector{eltype(mobt)}
+        @newcol :Mmax::Vector{eltype(mobt)}
+
+        # Динамика изменения подвижности фдюида
+        rows = UnitRange(:Jstart::Int, :Jstop::Int)
+        mobt_ = @view mobt[rows, :Istart::Int]
+
+        # Делаем единичную подвижность, если требуется постоянный Кпрод
+        :Const && (mobt_ .= one(eltype(mobt)))
+
+        # Текущее и мин./макс. значения подвижности        
+        :Minit = first(mobt_)
+        :Mmin, :Mmax = extrema(mobt_)        
+
+        # Пересчет Кпрод => геом. фактор        
+        :Init_value /= :Minit
+        :Min_value /= :Mmin
+        :Max_value /= :Mmax
+        
+        # Обрабатываем случай, когда Gmin >= Gmax
+        if :Max_value < :Min_value
+            # Корректируем мин./макс. подвижность, чтобы Gmin == Gmax
+            :Mmin = :Mmin * sqrt(:Min_value / :Max_value)
+            :Mmax = :Mmax * sqrt(:Max_value / :Min_value)            
+            clamp!(mobt_, :Mmin, :Mmax)
+            # Рассчитываем новые Gmin, Gmax
+            :Min_value = :Max_value = sqrt(:Min_value * :Max_value)            
+        end
+
+        # Помещаем значения в допустимые пределы
+        :Init_value = clamp(:Init_value, :Min_value, :Max_value)
+        :Minit = clamp(:Minit, :Mmin, :Mmax)
+        :Const = :Min_value .== :Max_value
+    end
+
+    # Исключаем Кпрод из настройки
+    df[df.Parameter .=== name, :Ignore] .= true
+    # Удаляем старую информацию
+    delete!(df, df.Parameter .∈ Ref([:Gw, :M]))
+
+    # Добавляем геом. факторы скважин к остальным параметрам
+    df_add = df_new[:, Not([:Minit, :Mmin, :Mmax])]
+    df_add.Parameter .= :Gw
+    append!(df, df_add)
+    # Добавляем подвижности к остальным параметрам
+    df_add = df_new[:, Not([:Init_value, :Min_value, :Max_value])]
+    rename!(df_add, :Minit => :Init_value, :Mmin => :Min_value, :Mmax => :Max_value)
+    df_add.Parameter .= :M
+    df_add.Ignore .= true
+    append!(df, df_add)
+
+    return df
 end

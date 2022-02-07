@@ -10,7 +10,8 @@ Base.@kwdef struct ModelParameters{A<:AbstractArray{<:AbstractFloat}, B<:Abstrac
     Swi::A
     Vpi::A    
     Tconst::A
-    Jp::A
+    Gw::A
+    M::A
     Jinj::A
     λ::A
     Pmin::A
@@ -104,7 +105,8 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
     
     # Формируем матрицы параметров и отборов
     kwargs = (
-        # Исходные параметры модели        
+        # Входные переменные модели    
+        Δt = build_rate_matrix(T, daysinmonth.(dates), 1, Nd),    
         Tconn = build_parameter_matrix(T, df_params, :Tconn, Nc, Nd),
         Pi = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
         Bwi = build_parameter_matrix(T, df_params, :Bwi, Nt, Nd),
@@ -115,29 +117,27 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         Swi = build_parameter_matrix(T, df_params, :Swi, Nt, Nd),
         Vpi = build_parameter_matrix(T, df_params, :Vpi, Nt, Nd),
         Tconst = build_parameter_matrix(T, df_params, :Tconst, Nt, Nd),
-        Jp = build_parameter_matrix(T, df_params, :Jp, Nt, Nd),
+        Gw = build_parameter_matrix(T, df_params, :Gw, Nt, Nd),
         Jinj = build_parameter_matrix(T, df_params, :Jinj, Nt, Nd),
         λ = build_parameter_matrix(T, df_params, :λ, Nt, Nd),
         Pmin = build_parameter_matrix(T, df_params, :Pmin, Nt, Nd),
-        Pmax = build_parameter_matrix(T, df_params, :Pmax, Nt, Nd),
+        Pmax = build_parameter_matrix(T, df_params, :Pmax, Nt, Nd), 
+        Qliq_h = build_rate_matrix(T, df_rates.Qliq, Nt, Nd),
+        Qinj_h = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),
+        M = build_rate_matrix(T, df_rates.Total_mobility, Nt, Nd),
 
-        # Данные по истории разработки
-        Δt = build_rate_matrix(T, daysinmonth.(dates), 1, Nd),
-        Qliq_h = build_rate_matrix(T, df_rates.Qliq, Nt, Nd),        
-        Qinj_h = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),        
-
-        # Флаги обновления буферов
+        # Вспомогательные флаги обновления буферов
         Tupd = build_update_matrix(T, df_params, (:Tconn,), Nd),
         Vupd = build_update_matrix(T, df_params, (:Vpi, :Bwi, :Boi, :Swi,), Nd),
         cupd = build_update_matrix(T, df_params, (:cw, :co, :cf), Nd,),
         
-        # Вычисляемые параметры модели
-        Pcalc = Array{T}(undef, Nt, Nd),
-        Qliq = Array{T}(undef, Nt, Nd),
-        Qinj = Array{T}(undef, Nt, Nd),
+        # Выходные переменные модели
+        Pcalc = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
+        Qliq = build_rate_matrix(T, df_rates.Qliq, Nt, Nd),
+        Qinj = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),        
+        Pbhp = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
+        Pinj = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
         jac_next = Array{T}(undef, Nt, Nd),
-        Pbhp = Array{T}(undef, Nt, Nd),
-        Pinj = Array{T}(undef, Nt, Nd),
     )
 
     params, pviews = params_and_views(ModelParameters, kwargs)    

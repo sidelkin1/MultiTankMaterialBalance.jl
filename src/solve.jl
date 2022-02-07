@@ -25,16 +25,14 @@ end
 
 function init_values!(P, prob::NonlinearProblem)
 
-    @unpack Pi, Pcalc, Pbhp, Pinj = @inbounds prob.pviews[1]
+    @unpack Pi = @inbounds prob.pviews[1]
     @unpack Vwprev, Voprev, Vwi, Voi = prob.cache    
     
     # Инициализация на нулевом временном шаге
     update_cache!(prob, 1)
-    @inbounds @simd for i = 1:length(Pi)
-        P[i] = Pcalc[i] = Pbhp[i] = Pinj[i] = Pi[i]
-        Vwprev[i] = Vwi[i]
-        Voprev[i] = Voi[i]
-    end    
+    copyto!(P, Pi)
+    copyto!(Vwprev, Vwi)
+    copyto!(Voprev, Voi)
 
     return P, prob
 end
@@ -59,7 +57,7 @@ end
 function accept_step!(prob::NonlinearProblem, n, P)
 
     params = params = @inbounds prob.pviews[n]
-    @unpack jac_next, Pcalc, Qliq, Jp, Pbhp, λ, Qinj, Jinj, Pinj, Δt = params
+    @unpack jac_next, Pcalc, Qliq, Gw, M, Pbhp, λ, Qinj, Jinj, Pinj, Δt = params
     @unpack Vwprev, Voprev, Vw, Vo, cwf, cof = prob.cache
 
     # Сохраняем данные на текущем временном шаге
@@ -72,7 +70,7 @@ function accept_step!(prob::NonlinearProblem, n, P)
         jac_next[i] = -(Vw[i] * cwf[i] + Vo[i] * cof[i]) / Δt[]
 
         # Забойные давления
-        Pbhp[i] = P[i] - Qliq[i] / Jp[i]
+        Pbhp[i] = P[i] - Qliq[i] / (Gw[i] * M[i])
         Pinj[i] = P[i] + λ[i] * Qinj[i] / Jinj[i]
     end
 
