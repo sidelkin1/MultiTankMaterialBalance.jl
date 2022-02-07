@@ -75,26 +75,27 @@ function read_params(path, opts)
     return df
 end
 
-function mark_null_params!(df_params, name, isnull)
-    df = @view df_params[df_params.Parameter .=== name, :]
-    df.Skip .= @with df @byrow begin
+function mark_null_params!(df::AbstractDataFrame, name::Symbol, isnull)
+    df_view = @view df[df.Parameter .=== name, :]
+    df_view.Ignore .|= @with df_view @byrow begin
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
-        :Skip | all(isnull[rows, :Istart::Int])
+        all(isnull[rows, :Istart::Int])
     end
-    return df_params
+    return df
 end
 
-function set_null_weights!(weight, df_params, name)
-    df = @subset(df_params, :Parameter .=== name, :Skip .=== true)
-    @with df @byrow begin
+function set_null_weights!(weight, df::AbstractDataFrame, name::Symbol)    
+    df_view = @view df[(df.Parameter .=== name) .& df.Ignore, :]
+    @with df_view @byrow begin
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
         # TODO: Выбрано умножение для 'missing propagation',
         # т.е. (missing * число === missing)
         weight[rows, :Istart::Int] .*= zero(eltype(weight))
     end
+    return weight
 end
 
-function process_params!(df_params, df_rates)
+function process_params!(df_params::AbstractDataFrame, df_rates::AbstractDataFrame)
 
     # Нумеруем названия блоков и даты
     numberof(data) = @_ data |> 
@@ -119,19 +120,17 @@ function process_params!(df_params, df_rates)
     
     # Добавляем конец периода параметра
     df = groupby(df_params, [:Parameter, :Field, :Tank, :Neighb])
-    @transform! df begin
-        :Jstop = [:Jstart[2:end] .- 1; N]
-    end
-
+    @transform!(df, :Jstop = [:Jstart[2:end] .- 1; N])
+    
     # TODO: Дополнительно дробим (если требуется) интервалы закрепления 'Jinj',
     # чтобы внутри каждого интервале значение 'λ' не менялось бы.
     # Это значительно упрощает дифференцирование целевой функции по 'P'
     split_params!(df_params, :λ, :Jinj)
 
     # Помечаем параметры, не требующие настройки
-    @transform! df_params begin
-        :Skip = :Min_value .== :Max_value
-    end
+    @transform!(df_params, :Const = :Min_value .== :Max_value)
+    @transform!(df_params, :Ignore = :Const .& (:Init_value .≠ :Min_value))
+    
     # Часть параметров можно сразу исключать из настройки
     crits = @with df_rates begin (
         λ = (:Qinj .== 0)::BitVector,
@@ -148,11 +147,7 @@ function process_params!(df_params, df_rates)
         mark_null_params!(df_params, key, reshape(values, N, :))
     end
 
-    # TODO: Принудительно зануляются веса замеров для неизменяемых 
-    # параметров, а значит они не будут включаться в расчет целевой функции.
-    # Такое поведение может оказаться не приемлемым, если нам точно известно 
-    # значение параметра 'Jp' (т.е. он должен быть фиксированным), но при этом
-    # требуется подгонка профиля 'P' под фактические профили 'Qliq' и 'Pbhp'
+    # Принудительно зануляются веса замеров для игнорируемых параметров (Ignore == true)
     crits = @with df_rates begin (
         Jp = :Wbhp_prod,
         Jinj = :Wbhp_inj,
@@ -164,9 +159,9 @@ function process_params!(df_params, df_rates)
     return df_params, df_rates
 end
 
-function save_rates!(df::AbstractDataFrame, prob::NonlinearProblem, path, opts)
+function save_rates!(df_rates::AbstractDataFrame, prob::NonlinearProblem, path, opts)
 
-    @transform! df begin
+    @transform! df_rates begin
         :Pres_calc = vec(prob.params.Pcalc')
         :Pbhp_calc = vec(prob.params.Pbhp')
         :Pinj_calc = vec(prob.params.Pinj')
@@ -178,20 +173,20 @@ function save_rates!(df::AbstractDataFrame, prob::NonlinearProblem, path, opts)
     end
 
     open(path, CSV_ENC, "w") do io
-        CSV.write(io, df; delim=opts["delim"], dateformat=opts["dateformat"])
+        CSV.write(io, df_rates; delim=opts["delim"], dateformat=opts["dateformat"])
     end
 
-    return df
+    return df_rates
 end
 
 function save_params!(df::AbstractDataFrame, fset::FittingSet, path, opts)
 
-    @transform!(df, :Calc_value = :Init_value)
-    df_view = @view df[df.Skip .=== false, :]
+    @transform!(df, :Calc_value = :Init_value)    
+    df_view = @view df[.!(df.Const .| df.Ignore), :]
     copyto!(df_view.Calc_value, fset.cache.ybuf)    
 
     replace!(df.Parameter, reverse.(PSYMS)...)
-    select!(df, Not([:Istart, :Jstart, :Jstop, :Skip])) 
+    select!(df, Not([:Istart, :Jstart, :Jstop, :Const, :Ignore])) 
 
     open(path, CSV_ENC, "w") do io
         CSV.write(io, df; delim=opts["delim"], dateformat=opts["dateformat"])

@@ -9,17 +9,17 @@ Base.@kwdef struct SigmoidScaling{T} <: AbstractParametersScaling{T}
     xsigm::Vector{T}
 end
 
-function LinearScaling{T}(df_params::AbstractDataFrame) where {T}
-    df = @view df_params[df_params.Skip .=== false, :]
-    xrange = @with(df, :Max_value .- :Min_value)
-    xmin = @with(df, @. -:Min_value / xrange)
+function LinearScaling{T}(df::AbstractDataFrame) where {T}
+    df_view = @view df[.!(df.Const .| df.Ignore), :]
+    xrange = @with(df_view, :Max_value .- :Min_value)
+    xmin = @with(df_view, @. -:Min_value / xrange)
     LinearScaling{T}(; xrange, xmin)
 end
 
-function SigmoidScaling{T}(df_params::AbstractDataFrame) where {T}
-    df = @view df_params[df_params.Skip .=== false, :]
-    xrange = @with(df, :Max_value .- :Min_value)
-    xmin = @with(df, @. -:Min_value / xrange)
+function SigmoidScaling{T}(df::AbstractDataFrame) where {T}
+    df_view = @view df[.!(df.Const .| df.Ignore), :]
+    xrange = @with(df_view, :Max_value .- :Min_value)
+    xmin = @with(df_view, @. -:Min_value / xrange)
     xsigm = Array{T}(undef, length(xrange))
     SigmoidScaling{T}(; xrange, xmin, xsigm)
 end

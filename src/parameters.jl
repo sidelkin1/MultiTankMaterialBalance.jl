@@ -86,20 +86,20 @@ function FittingParameter{S, T}(df::AbstractDataFrame, prob::NonlinearProblem{T}
     FittingParameter{S, T}(; pviews, yviews, valids, vviews, bviews, bviews2, xviews, gviews)
 end
 
-function FittingSet{T}(df_params::AbstractDataFrame, prob::NonlinearProblem{T}, scale::AbstractParametersScaling{T}) where {T}
+function FittingSet{T}(df::AbstractDataFrame, prob::NonlinearProblem{T}, scale::AbstractParametersScaling{T}) where {T}
 
     # Число соединений и блоков
     Nc, Nt = size(prob.C)
 
-    # Фильтруем параметры, требующие настройки (Skip == false)
-    df = @view df_params[df_params.Skip .=== false, :]
-    cache = FittingCache{T}(Nt, Nc, nrow(df))
-    α = df[:, :alpha]
+    # Фильтруем параметры, требующие настройки (Const == false и Ignore == false)    
+    df_view = @view df[.!(df.Const .| df.Ignore), :]
+    cache = FittingCache{T}(Nt, Nc, nrow(df_view))
+    α = df_view[:, :alpha]
     
     stop = 0
     # FIXED: Сам по себе 'map' для 'GroupedDataFrame' 
     # невозможен (reserved), но можно по 'pairs(..)'
-    gd = groupby(df, :Parameter)
+    gd = groupby(df_view, :Parameter)
     params = map(pairs(gd)) do (key, df)
         sym = key.Parameter
         start = stop + 1
