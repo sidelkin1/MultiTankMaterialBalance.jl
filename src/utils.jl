@@ -35,19 +35,3 @@ function assess_convergence(x, x_prev, f_x, x_tol, f_tol)
     end
     return x_converged, f_converged
 end
-
-function build_rate_matrix(::Type{T}, data, N, M) where {T}
-    @_ data |> 
-        replace(__, missing =>  NaN) |>
-        convert(Vector{T}, __)::Vector{T} |> 
-        reshape(__, M, N) |> 
-        permutedims(__)
-end
-
-function params_and_views(::Type{T}, data) where {T}
-    params = T(; data...)
-    pviews = map(zip(eachcol.(values(data))...)) do x
-        T(; (keys(data) .=> x)...)
-    end
-    return params, pviews
-end

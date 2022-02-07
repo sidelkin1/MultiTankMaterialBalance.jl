@@ -11,7 +11,7 @@ const CSV_ENC = enc"WINDOWS-1251"
 abstract type AbstractLinearSolver{T<:AbstractFloat} end
 abstract type AbstractNonlinearSolver{T<:AbstractFloat} end
 
-abstract type AbstractTargetTerm{S, T<:AbstractFloat} end
+abstract type AbstractTargetTerm{T<:AbstractFloat} end
 abstract type AbstractFittingParameter{T<:AbstractFloat} end
 abstract type AbstractParametersScaling{T<:AbstractFloat} end
 

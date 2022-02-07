@@ -80,7 +80,7 @@ solver = NewtonSolver{Float}(prob, linalg, opts["solver"])
 # Список оптимизируемых параметров
 fset = FittingSet{Float}(df_params, prob, scale)
 # Целевая функция
-targ = TargetFunction{Float}(df_rates, prob, fset, opts["target_fun"])
+targ = TargetFunction{Float}(df_rates, df_params, prob, fset, opts["target_fun"])
 # Алгоритм расчета градиента целевой функции
 adjoint = AdjointSolver{Float}(prob, targ, linalg, fset)
 
@@ -91,13 +91,17 @@ optim_opts = opts["optimizer"][String(optim_pkg)]
 optim_fun = fun(fset, solver, targ, adjoint, Val(optim_pkg))
 initial_x = copy(getparams!(fset))
 
-solve!(solver; verbose=true)
-solve!(adjoint; verbose=true)
+setparams!(fset, initial_x)
+solve!(solver; verbose=false)
+update_targ!(targ)
+solve!(adjoint; verbose=false)
+calc_well_index!(targ)
 
 grad = similar(initial_x)
 val = optim_fun(initial_x, grad)
 
 println(val)
+println(getvalues(targ))
 println(grad)
 # @btime solve!($solver)
 # @btime solve!($adjoint)
@@ -107,4 +111,4 @@ println(fd_g)
 
 # Сохраняем результаты
 save_rates!(df_rates, prob, parsed_args["result_prod"], opts["csv"])
-save_params!(df_params, fset, parsed_args["result_params"], opts["csv"])
+save_params!(df_params, fset, targ, parsed_args["result_params"], opts["csv"])

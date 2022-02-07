@@ -5,7 +5,7 @@
     "delim": ";"
   },
   "solver": {
-    "linalg": "sparse",
+    "linalg": "recursive",
     "reorder": "amd",
     "maxiters": 10,
     "P_tol": 1e-7,
@@ -106,7 +106,9 @@
   "target_fun": {
     "alpha_resp": 1,
     "alpha_bhp": 0.01,
+    "alpha_bhp_bound": 100,
     "alpha_inj": 0.01,
+    "alpha_inj_bound": 100,
     "alpha_lb": 10,
     "alpha_ub": 10,
     "alpha_l2": 1

@@ -1,4 +1,4 @@
-function grad!(g, fset::FittingSet{T}, prob::NonlinearProblem, targ::TargetFunction, μ, n) where {T}
+function grad!(g, fset::FittingSet{T}, prob::NonlinearProblem, μ, n) where {T}
     @unpack cache = fset
     @unpack gbuf = cache
 
@@ -6,7 +6,7 @@ function grad!(g, fset::FittingSet{T}, prob::NonlinearProblem, targ::TargetFunct
     fill!(gbuf, zero(T))
     # FIXED: Использование 'map' вместо 'for' сохраняет 'type-stability'
     map(fset.params) do param
-        grad!(cache, param, prob, targ, μ, n)
+        grad!(cache, param, prob, μ, n)
     end
     @simd for i = 1:length(g)
         g[i] += gbuf[i]
@@ -15,14 +15,12 @@ function grad!(g, fset::FittingSet{T}, prob::NonlinearProblem, targ::TargetFunct
     return g
 end
 
-grad!(param::FittingParameter{S}, prob::NonlinearProblem, targ::TargetFunction, cache::FittingCache, μ, n) where {S} = nothing
-
-function grad!(cache::FittingCache, param::FittingParameter{:Tconn}, prob::NonlinearProblem, targ::TargetFunction, μ, n)
+function grad!(cache::FittingCache, param::FittingParameter{:Tconn}, prob::NonlinearProblem, μ, n)
     @unpack C = prob
     @unpack gviews, bviews = param    
-    @unpack V = @inbounds param.vviews[n]
     @unpack Pcalc = @inbounds prob.pviews[n]
     @unpack cbuf, cbuf2 = cache
+    V = @inbounds param.vviews[n]
     
     mul!(cbuf, C, Pcalc)
     mul!(cbuf2, C, μ)
@@ -36,12 +34,12 @@ function grad!(cache::FittingCache, param::FittingParameter{:Tconn}, prob::Nonli
     return cache
 end
 
-function grad!(cache::FittingCache, param::FittingParameter{:Tconst}, prob::NonlinearProblem, targ::TargetFunction, μ, n)
+function grad!(cache::FittingCache, param::FittingParameter{:Tconst}, prob::NonlinearProblem, μ, n)
 
-    @unpack gviews, bviews = param
-    @unpack V = @inbounds param.vviews[n]
+    @unpack gviews, bviews = param    
     @unpack Pcalc, Pi = @inbounds prob.pviews[n]
     @unpack tbuf = cache
+    V = @inbounds param.vviews[n]
 
     @inbounds @simd for i = 1:length(tbuf)
         tbuf[i] = (Pcalc[i] - Pi[i]) * μ[i]
@@ -53,14 +51,14 @@ function grad!(cache::FittingCache, param::FittingParameter{:Tconst}, prob::Nonl
     return cache
 end
 
-function grad!(cache::FittingCache, param::FittingParameter{:Vpi, T}, prob::NonlinearProblem, targ::TargetFunction, μ, n) where {T}    
+function grad!(cache::FittingCache, param::FittingParameter{:Vpi, T}, prob::NonlinearProblem, μ, n) where {T}    
     
     @unpack tbuf, tbuf2 = cache
     @unpack "ⁿ", Pcalc, Pi, Swi, Bwi, Boi, cw, co, cf = @inbounds prob.pviews[n]
-    @unpack "ⁿ", V = @inbounds param.vviews[n]
     @unpack "ⁿ⁻¹", Pcalc, Pi, Swi, Bwi, Boi, cw, co, cf, Δt = @inbounds prob.pviews[n-1]
-    @unpack "ⁿ⁻¹", V = @inbounds param.vviews[n-1]
     @unpack gviews, bviews, bviews2 = param
+    Vⁿ = @inbounds param.vviews[n]
+    Vⁿ⁻¹ = @inbounds param.vviews[n-1]
 
     @inbounds @simd for i = 1:length(tbuf)
         ΔP = Pcalcⁿ[i] - Piⁿ[i]
@@ -79,14 +77,14 @@ function grad!(cache::FittingCache, param::FittingParameter{:Vpi, T}, prob::Nonl
     return cache
 end
 
-function grad!(cache::FittingCache, param::FittingParameter{:cf, T}, prob::NonlinearProblem, targ::TargetFunction, μ, n) where {T}    
+function grad!(cache::FittingCache, param::FittingParameter{:cf, T}, prob::NonlinearProblem, μ, n) where {T}    
     
     @unpack tbuf, tbuf2 = cache
-    @unpack "ⁿ", Pcalc, Vpi, Pi, Swi, Bwi, Boi, cw, co, cf = @inbounds prob.pviews[n]
-    @unpack "ⁿ", V = @inbounds param.vviews[n]
-    @unpack "ⁿ⁻¹", Pcalc, Vpi, Pi, Swi, Bwi, Boi, cw, co, cf, Δt = @inbounds prob.pviews[n-1]
-    @unpack "ⁿ⁻¹", V = @inbounds param.vviews[n-1]
+    @unpack "ⁿ", Pcalc, Vpi, Pi, Swi, Bwi, Boi, cw, co, cf = @inbounds prob.pviews[n]    
+    @unpack "ⁿ⁻¹", Pcalc, Vpi, Pi, Swi, Bwi, Boi, cw, co, cf, Δt = @inbounds prob.pviews[n-1]    
     @unpack gviews, bviews, bviews2 = param
+    Vⁿ = @inbounds param.vviews[n]
+    Vⁿ⁻¹ = @inbounds param.vviews[n-1]
 
     @inbounds @simd for i = 1:length(tbuf)
         ΔP = Pcalcⁿ[i] - Piⁿ[i]
@@ -105,36 +103,15 @@ function grad!(cache::FittingCache, param::FittingParameter{:cf, T}, prob::Nonli
     return cache
 end
 
-function grad!(cache::FittingCache, param::FittingParameter{:λ, T}, prob::NonlinearProblem, targ::TargetFunction, μ, n) where {T}    
-    
-    @unpack gviews, bviews = param
-    @unpack V = @inbounds param.vviews[n]
-    @unpack Qinj, Pinj, Jinj = @inbounds prob.pviews[n]
-    @unpack Wnan, Wobs, Pobs = @inbounds targ.terms.Pinj.pviews[n]
-    @unpack α = targ.terms.Pinj
-    @unpack tbuf = cache
-
-    @inbounds @simd for i = 1:length(tbuf)
-        tbuf[i] = -Qinj[i] * μ[i] + Wnan[i] * (T(2) * α * Qinj[i] * Wobs[i] * (Pinj[i] - Pobs[i])) / Jinj[i]
-    end
-    @inbounds @simd for i = 1:length(bviews)
-        gviews[i] = bviews[i] * V[i]
-    end
-
-    return cache
-end
-
-function grad!(cache::FittingCache, param::FittingParameter{:Gw, T}, prob::NonlinearProblem, targ::TargetFunction, μ, n) where {T}    
+function grad!(cache::FittingCache, param::FittingParameter{:λ, T}, prob::NonlinearProblem, μ, n) where {T}    
     
     @unpack gviews, bviews = param    
-    @unpack V = @inbounds param.vviews[n]
-    @unpack Qliq, Pbhp, Gw, M = @inbounds prob.pviews[n]
-    @unpack Wnan, Wobs, Pobs = @inbounds targ.terms.Pbhp.pviews[n]
-    @unpack α = targ.terms.Pbhp
+    @unpack Qinj = @inbounds prob.pviews[n]
     @unpack tbuf = cache
+    V = @inbounds param.vviews[n]
 
     @inbounds @simd for i = 1:length(tbuf)
-        tbuf[i] = Wnan[i] * (T(2) * α * Qliq[i] * Wobs[i] * (Pbhp[i] - Pobs[i])) / (M[i] * Gw[i]^2)
+        tbuf[i] = -Qinj[i] * μ[i]
     end
     @inbounds @simd for i = 1:length(bviews)
         gviews[i] = bviews[i] * V[i]
@@ -143,28 +120,25 @@ function grad!(cache::FittingCache, param::FittingParameter{:Gw, T}, prob::Nonli
     return cache
 end
 
-function grad!(cache::FittingCache, param::FittingParameter{:Jinj, T}, prob::NonlinearProblem, targ::TargetFunction, μ, n) where {T}    
-    
-    @unpack gviews, bviews = param    
-    @unpack V = @inbounds param.vviews[n]
-    @unpack Qinj, Pinj, Jinj, λ = @inbounds prob.pviews[n]
-    @unpack Wnan, Wobs, Pobs = @inbounds targ.terms.Pinj.pviews[n]
-    @unpack α = targ.terms.Pinj
-    @unpack tbuf = cache
-
-    @inbounds @simd for i = 1:length(tbuf)
-        tbuf[i] = Wnan[i] * (-T(2) * α * λ[i] * Qinj[i] * Wobs[i] * (Pinj[i] - Pobs[i])) / Jinj[i]^2
-    end
-    @inbounds @simd for i = 1:length(bviews)
-        gviews[i] = bviews[i] * V[i]
-    end
-
-    return cache
+function grad!(g, targ::TargetFunction)
+    grad!(g, targ.finj, targ)
+    grad!(g, targ.terms.L2)
 end
 
-function grad!(g, term::L2TargetTerm{T}) where {T}    
+function grad!(g, term::FracInjectionTerm, targ::TargetFunction)
+    @unpack gbuf, gviews, idx = term
+    @unpack J⁻¹min, J⁻¹max, ΔJ⁻¹min, ΔJ⁻¹max, α = targ.terms.Jinj
+    @inbounds @simd for i = 1:length(gbuf)
+        gbuf[i] = -α * (J⁻¹max[i] * ΔJ⁻¹min[i] + J⁻¹min[i] * ΔJ⁻¹max[i])
+    end
+    @inbounds @simd for i = 1:length(idx)
+        g[idx[i]] += gviews[i]
+    end
+end
+
+function grad!(g, term::L2TargetTerm{T}) where {T}
     @unpack α, x, αₓ = term
-    for i = 1:length(g)
+    @inbounds @simd for i = 1:length(g)
         g[i] += α * T(2) * αₓ[i] * x[i]
     end
     return g

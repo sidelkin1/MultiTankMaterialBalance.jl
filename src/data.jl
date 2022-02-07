@@ -66,9 +66,6 @@ function read_params(path, opts)
     df.Parameter = Symbol.(df.Parameter)
     replace!(df.Parameter, PSYMS...)
 
-    # Коэффициент регуляризации на параметры (по умолчанию 0, если не задан)
-    df.alpha = replace(df.alpha, missing => zero(types[:alpha]))
-
     # Сортируем по датам
     @eachrow!(df, (:Tank, :Neighb) = sort!([:Tank, :Neighb]))
     sort!(df, [:Parameter, :Field, :Tank, :Neighb, :Date])
@@ -82,6 +79,7 @@ function mark_null_params!(df::AbstractDataFrame, name::Symbol, isnull)
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
         all(isnull[rows, :Istart::Int])
     end
+    df_view.Const .|= df_view.Ignore
     return df
 end
 
@@ -90,7 +88,7 @@ function set_null_weights!(weight, df::AbstractDataFrame, name::Symbol)
     @with df_view @byrow begin
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
         # TODO: Выбрано умножение для 'missing propagation',
-        # т.е. (missing * число === missing)
+        # т.е. (missing * число => missing)
         weight[rows, :Istart::Int] .*= zero(eltype(weight))
     end
     return weight
@@ -169,13 +167,13 @@ function process_params!(df_params::AbstractDataFrame, df_rates::AbstractDataFra
 end
 
 function save_rates!(df::AbstractDataFrame, prob::NonlinearProblem, path, opts)
-
+    
     @transform! df begin
         :Pres_calc = vec(prob.params.Pcalc')
         :Pbhp_calc = vec(prob.params.Pbhp')
         :Pinj_calc = vec(prob.params.Pinj')
         :Geom_factor = vec(prob.params.Gw')
-        :Prod_Index = vec((prob.params.Gw .* prob.params.M)')
+        :Prod_Index = vec(prob.params.Jp')
         :Inj_index = vec(prob.params.Jinj')
         :Frac_inj = vec(prob.params.λ')
         :Qliq_calc = vec(prob.params.Qliq')
@@ -189,20 +187,22 @@ function save_rates!(df::AbstractDataFrame, prob::NonlinearProblem, path, opts)
     return df
 end
 
-function save_params!(df::AbstractDataFrame, fset::FittingSet, path, opts)
+function save_params!(df::AbstractDataFrame, fset::FittingSet, targ::TargetFunction, path, opts)
 
     @transform!(df, :Calc_value = :Init_value)    
-    df_view = @view df[.!(df.Const .| df.Ignore), :]
+    df_view = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& .!df.Const, :]
     copyto!(df_view.Calc_value, fset.cache.ybuf)
 
-    # Преобразуем геом. факторы => Кпрод
-    df_geom = @view df[df.Parameter .=== :Gw, :]
-    df_mobt = @view df[df.Parameter .=== :M, :]
-    df_pi = @view df[df.Parameter .=== :Jp, :]
-    @. df_pi.Calc_value = df_geom.Calc_value * df_mobt.Calc_value
-    
+    # Заполняем геом. факторы и Кпрод
+    df_view = @view df[(df.Parameter .=== :Gw) .& .!df.Ignore, :]
+    copyto!(df_view.Calc_value, targ.wviews.Gw.yviews)    
+    df_view = @view df[(df.Parameter .=== :Jinj) .& .!df.Ignore, :]
+    copyto!(df_view.Calc_value, targ.wviews.Jinj.yviews)
+    df_view = @view df[(df.Parameter .=== :Jp) .& .!df.Ignore, :]
+    copyto!(df_view.Calc_value, targ.wviews.Jp.yviews)
+
     replace!(df.Parameter, reverse.(PSYMS)...)
-    select!(df, Not([:Istart, :Jstart, :Jstop, :Const, :Ignore])) 
+    select!(df, Not([:Istart, :Jstart, :Jstop, :Link, :Const, :Ignore])) 
 
     open(path, CSV_ENC, "w") do io
         CSV.write(io, df; delim=opts["delim"], dateformat=opts["dateformat"])
@@ -240,12 +240,14 @@ function split_params!(df::AbstractDataFrame, src::Symbol, dst::Symbol)
             :Date = [dfr.Date; :Date[2:end]]
             :Jstart = [dfr.Jstart; :Jstart[2:end]]
             :Jstop = [:Jstop[1:end-1]; dfr.Jstop]
+            # Ссылка на источник
+            :Link = axes(df_src, 1)[crit]
         end
     end |> items -> vcat(items...)
 
     # Формируем новый список интервалов закрепления
     delete!(df, df.Parameter .=== dst)
-    append!(df, df_new)
+    append!(df, df_new; cols=:union)
 
     return df
 end
@@ -257,10 +259,6 @@ function add_geom_factor!(df::AbstractDataFrame, name::Symbol, mobt)
 
     # Рассчитываем геом. факторы скважин
     @eachrow! df_new begin
-        @newcol :Minit::Vector{eltype(mobt)}
-        @newcol :Mmin::Vector{eltype(mobt)}
-        @newcol :Mmax::Vector{eltype(mobt)}
-
         # Динамика изменения подвижности фдюида
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
         mobt_ = @view mobt[rows, :Istart::Int]
@@ -269,45 +267,34 @@ function add_geom_factor!(df::AbstractDataFrame, name::Symbol, mobt)
         :Const && (mobt_ .= one(eltype(mobt)))
 
         # Текущее и мин./макс. значения подвижности        
-        :Minit = first(mobt_)
-        :Mmin, :Mmax = extrema(mobt_)        
+        Minit = first(mobt_)
+        Mmin, Mmax = extrema(mobt_)        
 
         # Пересчет Кпрод => геом. фактор        
-        :Init_value /= :Minit
-        :Min_value /= :Mmin
-        :Max_value /= :Mmax
+        :Init_value /= Minit
+        :Min_value /= Mmin
+        :Max_value /= Mmax
         
         # Обрабатываем случай, когда Gmin >= Gmax
         if :Max_value < :Min_value
             # Корректируем мин./макс. подвижность, чтобы Gmin == Gmax
-            :Mmin = :Mmin * sqrt(:Min_value / :Max_value)
-            :Mmax = :Mmax * sqrt(:Max_value / :Min_value)            
-            clamp!(mobt_, :Mmin, :Mmax)
+            Mmin *= √(:Min_value / :Max_value)
+            Mmax *= √(:Max_value / :Min_value)            
+            clamp!(mobt_, Mmin, Mmax)
             # Рассчитываем новые Gmin, Gmax
-            :Min_value = :Max_value = sqrt(:Min_value * :Max_value)            
+            :Min_value = :Max_value = √(:Min_value * :Max_value)            
         end
 
         # Помещаем значения в допустимые пределы
-        :Init_value = clamp(:Init_value, :Min_value, :Max_value)
-        :Minit = clamp(:Minit, :Mmin, :Mmax)
-        :Const = :Min_value .== :Max_value
+        :Init_value = clamp(:Init_value, :Min_value, :Max_value)        
+        :Const |= :Min_value .== :Max_value
     end
 
-    # Исключаем Кпрод из настройки
-    df[df.Parameter .=== name, :Ignore] .= true
     # Удаляем старую информацию
-    delete!(df, df.Parameter .∈ Ref([:Gw, :M]))
-
-    # Добавляем геом. факторы скважин к остальным параметрам
-    df_add = df_new[:, Not([:Minit, :Mmin, :Mmax])]
-    df_add.Parameter .= :Gw
-    append!(df, df_add)
-    # Добавляем подвижности к остальным параметрам
-    df_add = df_new[:, Not([:Init_value, :Min_value, :Max_value])]
-    rename!(df_add, :Minit => :Init_value, :Mmin => :Min_value, :Mmax => :Max_value)
-    df_add.Parameter .= :M
-    df_add.Ignore .= true
-    append!(df, df_add)
+    delete!(df, df.Parameter .=== :Gw)
+    # Добавляем геом. факторы скважин
+    df_new.Parameter .= :Gw
+    append!(df, df_new)
 
     return df
 end

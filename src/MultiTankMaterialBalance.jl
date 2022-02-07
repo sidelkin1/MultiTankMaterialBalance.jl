@@ -1,7 +1,7 @@
 module MultiTankMaterialBalance
 
 export read_rates, read_params, process_params!, save_rates!, save_params!
-export getvalue, getvalues, getparams!, getparams!!, setparams!, solve!, update_targ!
+export getvalue, getvalues, getparams!, getparams!!, setparams!, solve!, update_targ!, calc_well_index!
 export NonlinearProblem, LinearScaling, SigmoidScaling
 export DenseLinearSolver, RecursiveLinearSolver, SparseLinearSolver
 export NewtonSolver, FittingSet, TargetFunction, AdjointSolver

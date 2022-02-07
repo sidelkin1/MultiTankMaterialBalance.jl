@@ -37,14 +37,14 @@ function solve!(solver::AdjointSolver{T}; verbose=false) where {T}
         # TODO: Почему-то быстрее, чем 'ldiv!'
         μ .= jac \ gp
         
-        # Вычисление градиента целевой функции
-        grad!(g, fset, prob, targ, μ, n)
-                
+        # Вычисление градиента по параметрам
+        grad!(g, fset, prob, μ, n)
+
         verbose && println("n: $n, mu: $μ")
     end
 
-    # Градиент члена L2-регуляризации
-    grad!(g, targ.terms.L2)    
+    # Градиент целевой функции
+    grad!(g, targ)    
     # Коррекция градиента в соответствии с масштабированием параметров
     unscaleg!(g, fset.scale)
 

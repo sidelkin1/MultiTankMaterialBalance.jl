@@ -1,16 +1,12 @@
-Base.@kwdef struct ParameterValidity{A<:AbstractArray{<:Real}}
-    V::A
-end
-
-Base.@kwdef struct FittingParameter{S, T} <: AbstractFittingParameter{T} 
+Base.@kwdef struct FittingParameter{S, T} <: AbstractFittingParameter{T}    
     xviews::VectorRange{T}                              # ссылки на частичный диапазон глобального вектора параметров
     pviews::Vector{RowRange{T}}                         # ссылки на внутренний массив параметров модели (на весь периода закрепеления)
     yviews::CartesianView{T}                            # ссылки на внутренний массив параметров модели (на начало периода закрепеления)
-    valids::ParameterValidity{BitMatrix}                # массив периодов закрепления параметра
-    vviews::Vector{ParameterValidity{ColumnSliceBool}}  # ссылки на столбцы массива периода действия параметра
     gviews::VectorRange{T}                              # ссылки на частичный диапазон глобального вектора градиента
     bviews::VectorView{T}                               # ссылки на расчетный буфер 1
     bviews2::VectorView{T}                              # ссылки на расчетный буфер 2
+    V::BitMatrix                                        # массив периодов закрепления параметра
+    vviews::Vector{ColumnSliceBool}                     # ссылки на столбцы массива периода действия параметра
 end
 
 Base.@kwdef struct FittingCache{T<:AbstractFloat}
@@ -26,16 +22,16 @@ end
 Base.@kwdef struct FittingSet{T<:AbstractFloat, PS<:AbstractParametersScaling{T}, TP<:Tuple{Vararg{<:AbstractFittingParameter{T}}}}
     params::TP
     scale::PS
-    α::Vector{T}
     cache::FittingCache{T}
 end
 
-function build_fitting_views(df::AbstractDataFrame, prob::NonlinearProblem, ::Val{S}) where {S}
-    P = getfield(prob.params, S)
-    @with df begin (
-        pviews = view.(Ref(P), :Istart, UnitRange.(:Jstart, :Jstop)),
-        yviews = view(P, CartesianIndex.(:Istart, :Jstart)),
-    ) end
+function build_fitting_views(df::AbstractDataFrame, prob::NonlinearProblem, name::Symbol)
+    P = getfield(prob.params, name)
+    pviews, yviews = @with df begin
+        view.(Ref(P), :Istart, UnitRange.(:Jstart, :Jstop)),
+        view(P, CartesianIndex.(:Istart, :Jstart))
+    end
+    return pviews, yviews
 end
 
 function build_validity_matrix(df::AbstractDataFrame, N, M)
@@ -43,7 +39,7 @@ function build_validity_matrix(df::AbstractDataFrame, N, M)
     for (v, dfr) ∈ zip(eachrow.((V, df))...)
         v[UnitRange(dfr.Jstart, dfr.Jstop)] .= true
     end
-    params_and_views(ParameterValidity, (V = V,))
+    return V, collect(eachcol(V))
 end
 
 function FittingCache{T}(Nt, Nc, Nx) where {T}
@@ -79,11 +75,11 @@ function FittingParameter{S, T}(df::AbstractDataFrame, prob::NonlinearProblem{T}
     gviews = view(cache.gbuf, rng)        
 
     # Ссылки на параметры внутри модели
-    pviews, yviews = build_fitting_views(df, prob, Val(S))
+    pviews, yviews = build_fitting_views(df, prob, S)
     # Периоды закрепления параметров
-    valids, vviews = build_validity_matrix(df, nrow(df), Nd)
+    V, vviews = build_validity_matrix(df, nrow(df), Nd)
 
-    FittingParameter{S, T}(; pviews, yviews, valids, vviews, bviews, bviews2, xviews, gviews)
+    FittingParameter{S, T}(; xviews, pviews, yviews, gviews, bviews, bviews2, V, vviews)
 end
 
 function FittingSet{T}(df::AbstractDataFrame, prob::NonlinearProblem{T}, scale::AbstractParametersScaling{T}) where {T}
@@ -91,10 +87,9 @@ function FittingSet{T}(df::AbstractDataFrame, prob::NonlinearProblem{T}, scale::
     # Число соединений и блоков
     Nc, Nt = size(prob.C)
 
-    # Фильтруем параметры, требующие настройки (Const == false и Ignore == false)    
-    df_view = @view df[.!(df.Const .| df.Ignore), :]
+    # Фильтруем параметры, требующие настройки (Const == false)    
+    df_view = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& .!df.Const, :]
     cache = FittingCache{T}(Nt, Nc, nrow(df_view))
-    α = df_view[:, :alpha]
     
     stop = 0
     # FIXED: Сам по себе 'map' для 'GroupedDataFrame' 
@@ -107,7 +102,7 @@ function FittingSet{T}(df::AbstractDataFrame, prob::NonlinearProblem{T}, scale::
         FittingParameter{sym, T}(df, prob, cache, start:stop)        
     end |> Tuple
 
-    FittingSet{T, typeof(scale), typeof(params)}(; params, scale, α, cache)
+    FittingSet{T, typeof(scale), typeof(params)}(; params, scale, cache)
 end
 
 function getparams!(fset::FittingSet)

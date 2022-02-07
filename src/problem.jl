@@ -11,6 +11,7 @@ Base.@kwdef struct ModelParameters{A<:AbstractArray{<:AbstractFloat}, B<:Abstrac
     Vpi::A    
     Tconst::A
     Gw::A
+    Jp::A
     M::A
     Jinj::A
     λ::A
@@ -93,6 +94,21 @@ function build_update_matrix(::Type{T}, df_params, names, M) where {T}
     return A
 end
 
+function build_rate_matrix(::Type{T}, data, N, M) where {T}
+    @_ data |> 
+        convert(Vector{T}, __)::Vector{T} |> 
+        reshape(__, M, N) |> 
+        permutedims(__)
+end
+
+function params_and_views(::Type{T}, data) where {T}
+    params = T(; data...)
+    pviews = map(zip(eachcol.(values(data))...)) do x
+        T(; (keys(data) .=> x)...)
+    end
+    return params, pviews
+end
+
 function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDataFrame) where {T}
     
     # Формируем матрицу смежности
@@ -116,9 +132,7 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         cf = build_parameter_matrix(T, df_params, :cf, Nt, Nd),
         Swi = build_parameter_matrix(T, df_params, :Swi, Nt, Nd),
         Vpi = build_parameter_matrix(T, df_params, :Vpi, Nt, Nd),
-        Tconst = build_parameter_matrix(T, df_params, :Tconst, Nt, Nd),
-        Gw = build_parameter_matrix(T, df_params, :Gw, Nt, Nd),
-        Jinj = build_parameter_matrix(T, df_params, :Jinj, Nt, Nd),
+        Tconst = build_parameter_matrix(T, df_params, :Tconst, Nt, Nd),        
         λ = build_parameter_matrix(T, df_params, :λ, Nt, Nd),
         Pmin = build_parameter_matrix(T, df_params, :Pmin, Nt, Nd),
         Pmax = build_parameter_matrix(T, df_params, :Pmax, Nt, Nd), 
@@ -134,7 +148,10 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         # Выходные переменные модели
         Pcalc = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
         Qliq = build_rate_matrix(T, df_rates.Qliq, Nt, Nd),
-        Qinj = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),        
+        Qinj = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),
+        Gw = build_parameter_matrix(T, df_params, :Gw, Nt, Nd),
+        Jp = build_parameter_matrix(T, df_params, :Jp, Nt, Nd),
+        Jinj = build_parameter_matrix(T, df_params, :Jinj, Nt, Nd),
         Pbhp = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
         Pinj = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
         jac_next = Array{T}(undef, Nt, Nd),

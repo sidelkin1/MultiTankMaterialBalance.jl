@@ -10,14 +10,14 @@ Base.@kwdef struct SigmoidScaling{T} <: AbstractParametersScaling{T}
 end
 
 function LinearScaling{T}(df::AbstractDataFrame) where {T}
-    df_view = @view df[.!(df.Const .| df.Ignore), :]
+    df_view = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& .!df.Const, :]
     xrange = @with(df_view, :Max_value .- :Min_value)
     xmin = @with(df_view, @. -:Min_value / xrange)
     LinearScaling{T}(; xrange, xmin)
 end
 
 function SigmoidScaling{T}(df::AbstractDataFrame) where {T}
-    df_view = @view df[.!(df.Const .| df.Ignore), :]
+    df_view = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& .!df.Const, :]
     xrange = @with(df_view, :Max_value .- :Min_value)
     xmin = @with(df_view, @. -:Min_value / xrange)
     xsigm = Array{T}(undef, length(xrange))
