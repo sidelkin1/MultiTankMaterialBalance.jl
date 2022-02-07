@@ -12,7 +12,6 @@ using DataFramesMeta
 using StringEncodings
 using Dates
 using Underscores
-using BenchmarkTools
 using LinearAlgebra
 using SparseArrays
 using UnPack
@@ -21,6 +20,7 @@ using SuiteSparse
 using RecursiveFactorization
 using AMD
 using Metis
+using LoopVectorization
 
 include("types.jl")
 include("utils.jl")

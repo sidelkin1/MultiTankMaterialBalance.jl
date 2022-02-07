@@ -60,7 +60,7 @@ function read_params(path, opts)
     crit = ismissing.(df.Neighb)
     df[crit, :Neighb] .= df[crit, :Tank]
     # TODO Для преобразования 'Union{Missing, String}' в 'String'
-    df.Neighb = convert.(String, df.Neighb)
+    df.Neighb = convert.(String, df.Neighb)    
 
     # Преобразуем 'String' в 'Symbol'
     df.Parameter = Symbol.(df.Parameter)

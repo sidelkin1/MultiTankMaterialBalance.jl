@@ -38,7 +38,7 @@ function solve!(solver::AdjointSolver{T}; verbose=false) where {T}
         μ .= jac \ gp
         
         # Вычисление градиента по параметрам
-        grad!(g, fset, prob, μ, n)
+        grad!(g, fset, prob, targ, μ, n)
 
         verbose && println("n: $n, mu: $μ")
     end

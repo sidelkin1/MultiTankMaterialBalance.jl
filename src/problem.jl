@@ -157,6 +157,8 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         jac_next = Array{T}(undef, Nt, Nd),
     )
 
+    kwargs.Jinj ./= kwargs.λ
+
     params, pviews = params_and_views(ModelParameters, kwargs)    
     cache = ProblemCache{T}(Nt, Nc)
     NonlinearProblem{T}(; params, C, pviews, cache)

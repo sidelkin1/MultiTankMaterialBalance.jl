@@ -2,6 +2,7 @@ using MultiTankMaterialBalance
 using ArgParse
 using JSON
 using FiniteDiff
+using BenchmarkTools
 
 const dir = @__DIR__
 
@@ -91,24 +92,27 @@ optim_opts = opts["optimizer"][String(optim_pkg)]
 optim_fun = fun(fset, solver, targ, adjoint, Val(optim_pkg))
 initial_x = copy(getparams!(fset))
 
+grad = similar(initial_x)
+fd_g = FiniteDiff.finite_difference_gradient(x -> optim_fun(x, grad), initial_x, Val(:central); absstep=1e-12)
+
 setparams!(fset, initial_x)
-solve!(solver; verbose=false)
+solve!(solver; verbose=true)
 update_targ!(targ)
-solve!(adjoint; verbose=false)
+solve!(adjoint; verbose=true)
 calc_well_index!(targ)
 
-grad = similar(initial_x)
 val = optim_fun(initial_x, grad)
+calc_well_index!(targ)
 
 println(val)
 println(getvalues(targ))
 println(grad)
-# @btime solve!($solver)
-# @btime solve!($adjoint)
-
-fd_g = FiniteDiff.finite_difference_gradient(x -> optim_fun(x, grad), initial_x, Val(:central); absstep=1e-12)
 println(fd_g)
+@btime solve!($solver)
+@btime solve!($adjoint)
 
 # Сохраняем результаты
 save_rates!(df_rates, prob, parsed_args["result_prod"], opts["csv"])
 save_params!(df_params, fset, targ, parsed_args["result_params"], opts["csv"])
+
+nothing
