@@ -1,3 +1,12 @@
+const PSYMS = (
+    :Tconn => :Tconn, :Pi => :Pi, :Bwi => :Bwi, :Boi => :Boi, 
+    :cw => :cw, :co => :co, :cf => :cf, :Swi => :Swi, :Vpi => :Vpi, 
+    :Tconst => :Tconst, :Prod_index => :Jp, :Inj_index => :Jinj, 
+    :Frac_inj => :λ, :Min_Pres => :Pmin, :Max_Pres => :Pmax,
+)
+
+const CSV_ENC = enc"WINDOWS-1251"
+
 abstract type AbstractLinearSolver{T<:AbstractFloat} end
 abstract type AbstractNonlinearSolver{T<:AbstractFloat} end
 

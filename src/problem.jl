@@ -1,4 +1,5 @@
 Base.@kwdef struct ModelParameters{A<:AbstractArray{<:AbstractFloat}, B<:AbstractArray{<:Bool}}
+    Δt::A
     Tconn::A
     Pi::A
     Bwi::A
@@ -14,8 +15,7 @@ Base.@kwdef struct ModelParameters{A<:AbstractArray{<:AbstractFloat}, B<:Abstrac
     λ::A
     Pmin::A
     Pmax::A
-    Qoil_h::A
-    Qwat_h::A
+    Qliq_h::A
     Qinj_h::A
     Pcalc::A
     Qliq::A
@@ -99,11 +99,12 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
     # Число соединений и блоков
     Nc, Nt = size(C)
     # Число временных шагов
-    Nd = (length∘unique)(df_rates.Date::Vector{Date})
+    dates = unique(df_rates.Date::Vector{Date})
+    Nd = length(dates)
     
     # Формируем матрицы параметров и отборов
     kwargs = (
-        # Исходные параметры модели
+        # Исходные параметры модели        
         Tconn = build_parameter_matrix(T, df_params, :Tconn, Nc, Nd),
         Pi = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
         Bwi = build_parameter_matrix(T, df_params, :Bwi, Nt, Nd),
@@ -119,14 +120,16 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         λ = build_parameter_matrix(T, df_params, :λ, Nt, Nd),
         Pmin = build_parameter_matrix(T, df_params, :Pmin, Nt, Nd),
         Pmax = build_parameter_matrix(T, df_params, :Pmax, Nt, Nd),
-        Qoil_h = build_rate_matrix(T, df_rates.Qoil, Nt, Nd),
-        Qwat_h = build_rate_matrix(T, df_rates.Qwat, Nt, Nd),
-        Qinj_h = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),
+
+        # Данные по истории разработки
+        Δt = build_rate_matrix(T, daysinmonth.(dates), 1, Nd),
+        Qliq_h = build_rate_matrix(T, df_rates.Qliq, Nt, Nd),        
+        Qinj_h = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),        
 
         # Флаги обновления буферов
         Tupd = build_update_matrix(T, df_params, (:Tconn,), Nd),
-        Vupd = build_update_matrix(T, df_params, (:Vpi, :Bwi, :Boi, :Swi), Nd),
-        cupd = build_update_matrix(T, df_params, (:cw, :co, :cf), Nd),
+        Vupd = build_update_matrix(T, df_params, (:Vpi, :Bwi, :Boi, :Swi,), Nd),
+        cupd = build_update_matrix(T, df_params, (:cw, :co, :cf), Nd,),
         
         # Вычисляемые параметры модели
         Pcalc = Array{T}(undef, Nt, Nd),
@@ -159,7 +162,7 @@ function ProblemCache{T}(Nt, Nc) where {T}
     ProblemCache{T}(; kwargs...)
 end
 
-function val_and_jac!(r, J, P, prob::NonlinearProblem, n)
+function val_and_jac!(r, J, P, Δt, prob::NonlinearProblem, n)
 
     params = @inbounds prob.pviews[n]
     @unpack Vwprev, Voprev, Vw, Vo, CTC = prob.cache    
@@ -176,12 +179,11 @@ function val_and_jac!(r, J, P, prob::NonlinearProblem, n)
         Vo[i] = Voi[i] * exp(cof[i] * (P[i] - Pi[i]))
 
         # Обновляем вектор невязки до выполнения условия ∥r∥ ≈ 0
-        r[i] += Vw[i] - Vwprev[i] 
-        r[i] += Vo[i] - Voprev[i] 
+        r[i] += (Vw[i] - Vwprev[i] + Vo[i] - Voprev[i]) / Δt
         r[i] += Tconst[i] * (P[i] - Pi[i]) + Qsum[i]
 
         # В целом, якобиан статичен за исключением диагональных элементов
-        J[i, i] += Tconst[i] + Vw[i] * cwf[i] + Vo[i] * cof[i]
+        J[i, i] += Tconst[i] + (Vw[i] * cwf[i] + Vo[i] * cof[i]) / Δt
     end    
 
     return r, J

@@ -22,15 +22,6 @@ using RecursiveFactorization
 using AMD
 using Metis
 
-const PSYMS = (
-    :Tconn => :Tconn, :Pi => :Pi, :Bwi => :Bwi, :Boi => :Boi, 
-    :cw => :cw, :co => :co, :cf => :cf, :Swi => :Swi, :Vpi => :Vpi, 
-    :Tconst => :Tconst, :Prod_index => :Jp, :Inj_index => :Jinj, 
-    :Frac_inj => :λ, :Min_Pres => :Pmin, :Max_Pres => :Pmax,
-)
-
-const CSV_ENC = enc"WINDOWS-1251"
-
 include("types.jl")
 include("utils.jl")
 include("problem.jl")

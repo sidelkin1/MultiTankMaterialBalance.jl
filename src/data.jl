@@ -7,6 +7,7 @@ function read_rates(path, opts)
         :Date => Date,
         :Qoil => Float64,
         :Qwat => Float64,
+        :Qliq => Float64,
         :Qinj => Float64,
         :Pres => Float64,
         :Source_resp => String,
@@ -137,7 +138,7 @@ function process_params!(df_params, df_rates)
         Jp = (@. (ismissing(:Pbhp_prod) 
                 | ismissing(:Wbhp_prod) 
                 | (:Wbhp_prod == 0) 
-                | ((:Qoil + :Qwat) == 0)))::BitVector,
+                | (:Qliq == 0)))::BitVector,
         Jinj = (@. (ismissing(:Pbhp_inj) 
                 | ismissing(:Wbhp_inj) 
                 | (:Wbhp_inj == 0) 

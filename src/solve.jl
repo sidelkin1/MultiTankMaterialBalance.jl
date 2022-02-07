@@ -4,8 +4,9 @@ function solve!(solver::AbstractNonlinearSolver; verbose=false)
     init_values!(P, prob)
 
     for n = 2:length(prob.pviews)
+        @unpack Δt = @inbounds prob.pviews[n-1]
         prepare_step!(prob, n, P) 
-        perform_step!(solver, n)
+        perform_step!(solver, Δt[], n)
        
         if verbose
             @printf "n: %d, " n
@@ -41,13 +42,13 @@ end
 function prepare_step!(prob::NonlinearProblem, n, P)
 
     params = @inbounds prob.pviews[n]
-    @unpack Pmin, Pmax, Qliq, Qinj, Qwat_h, Qoil_h, Qinj_h, λ = params    
+    @unpack Pmin, Pmax, Qliq, Qinj, Qliq_h, Qinj_h, λ = params    
     @unpack Qsum = prob.cache
 
     update_cache!(prob, n)
     @inbounds @simd for i = 1:length(P)   
         # Коррекция отборов с учетом верх. и ниж. границ Рпл
-        Qliq[i] = (P[i] ≥ Pmin[i]) * (Qwat_h[i] + Qoil_h[i])
+        Qliq[i] = (P[i] ≥ Pmin[i]) * Qliq_h[i]
         Qinj[i] = (P[i] ≤ Pmax[i]) * Qinj_h[i]
         Qsum[i] = Qliq[i] - λ[i] * Qinj[i]    
     end
@@ -58,7 +59,7 @@ end
 function accept_step!(prob::NonlinearProblem, n, P)
 
     params = params = @inbounds prob.pviews[n]
-    @unpack jac_next, Pcalc, Qliq, Jp, Pbhp, λ, Qinj, Jinj, Pinj = params
+    @unpack jac_next, Pcalc, Qliq, Jp, Pbhp, λ, Qinj, Jinj, Pinj, Δt = params
     @unpack Vwprev, Voprev, Vw, Vo, cwf, cof = prob.cache
 
     # Сохраняем данные на текущем временном шаге
@@ -67,8 +68,8 @@ function accept_step!(prob::NonlinearProblem, n, P)
     copyto!(Voprev, Vo)
 
     @inbounds @simd for i = 1:length(P)
-        # Якобиан относительно Рпл на пред. временном шаге
-        jac_next[i] = -(Vw[i] * cwf[i] + Vo[i] * cof[i])
+        # Диагональ якобиана относительно Рпл на пред. временном шаге
+        jac_next[i] = -(Vw[i] * cwf[i] + Vo[i] * cof[i]) / Δt[]
 
         # Забойные давления
         Pbhp[i] = P[i] - Qliq[i] / Jp[i]

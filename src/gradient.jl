@@ -4,7 +4,7 @@ function grad!(g, fset::FittingSet{T}, prob::NonlinearProblem, targ::TargetFunct
 
     # Расчет градиента по каждой группе параметров
     fill!(gbuf, zero(T))
-    # FIXED Использование 'map' вместо 'for' сохраняет 'type-stability'
+    # FIXED: Использование 'map' вместо 'for' сохраняет 'type-stability'
     map(fset.params) do param
         grad!(cache, param, prob, targ, μ, n)
     end
@@ -58,7 +58,7 @@ function grad!(cache::FittingCache, param::FittingParameter{:Vpi, T}, prob::Nonl
     @unpack tbuf, tbuf2 = cache
     @unpack "ⁿ", Pcalc, Pi, Swi, Bwi, Boi, cw, co, cf = @inbounds prob.pviews[n]
     @unpack "ⁿ", V = @inbounds param.vviews[n]
-    @unpack "ⁿ⁻¹", Pcalc, Pi, Swi, Bwi, Boi, cw, co, cf = @inbounds prob.pviews[n-1]
+    @unpack "ⁿ⁻¹", Pcalc, Pi, Swi, Bwi, Boi, cw, co, cf, Δt = @inbounds prob.pviews[n-1]
     @unpack "ⁿ⁻¹", V = @inbounds param.vviews[n-1]
     @unpack gviews, bviews, bviews2 = param
 
@@ -66,11 +66,11 @@ function grad!(cache::FittingCache, param::FittingParameter{:Vpi, T}, prob::Nonl
         ΔP = Pcalcⁿ[i] - Piⁿ[i]
         tbuf[i] = Swiⁿ[i] / Bwiⁿ[i] * exp((cwⁿ[i] + cfⁿ[i]) * ΔP)
         tbuf[i] += (one(T) - Swiⁿ[i]) / Boiⁿ[i] * exp((coⁿ[i] + cfⁿ[i]) * ΔP)
-        tbuf[i] *= μ[i]
+        tbuf[i] *= μ[i] / Δtⁿ⁻¹[]
         ΔP = Pcalcⁿ⁻¹[i] - Piⁿ⁻¹[i]
         tbuf2[i] = Swiⁿ⁻¹[i] / Bwiⁿ⁻¹[i] * exp((cwⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP)
         tbuf2[i] += (one(T) - Swiⁿ⁻¹[i]) / Boiⁿ⁻¹[i] * exp((coⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP)
-        tbuf2[i] *= μ[i]                
+        tbuf2[i] *= μ[i] / Δtⁿ⁻¹[]          
     end
     @inbounds @simd for i = 1:length(bviews)
         gviews[i] = bviews[i] * Vⁿ[i] - bviews2[i] * Vⁿ⁻¹[i]
@@ -84,7 +84,7 @@ function grad!(cache::FittingCache, param::FittingParameter{:cf, T}, prob::Nonli
     @unpack tbuf, tbuf2 = cache
     @unpack "ⁿ", Pcalc, Vpi, Pi, Swi, Bwi, Boi, cw, co, cf = @inbounds prob.pviews[n]
     @unpack "ⁿ", V = @inbounds param.vviews[n]
-    @unpack "ⁿ⁻¹", Pcalc, Vpi, Pi, Swi, Bwi, Boi, cw, co, cf = @inbounds prob.pviews[n-1]
+    @unpack "ⁿ⁻¹", Pcalc, Vpi, Pi, Swi, Bwi, Boi, cw, co, cf, Δt = @inbounds prob.pviews[n-1]
     @unpack "ⁿ⁻¹", V = @inbounds param.vviews[n-1]
     @unpack gviews, bviews, bviews2 = param
 
@@ -92,11 +92,11 @@ function grad!(cache::FittingCache, param::FittingParameter{:cf, T}, prob::Nonli
         ΔP = Pcalcⁿ[i] - Piⁿ[i]
         tbuf[i] = Swiⁿ[i] * Vpiⁿ[i] / Bwiⁿ[i] * exp((cwⁿ[i] + cfⁿ[i]) * ΔP) * ΔP
         tbuf[i] += (one(T) - Swiⁿ[i]) * Vpiⁿ[i] / Boiⁿ[i] * exp((coⁿ[i] + cfⁿ[i]) * ΔP) * ΔP
-        tbuf[i] *= μ[i]
+        tbuf[i] *= μ[i] / Δtⁿ⁻¹[]
         ΔP = Pcalcⁿ⁻¹[i] - Piⁿ⁻¹[i]
         tbuf2[i] = Swiⁿ⁻¹[i] * Vpiⁿ⁻¹[i] / Bwiⁿ⁻¹[i] * exp((cwⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP) * ΔP
         tbuf2[i] += (one(T) - Swiⁿ⁻¹[i]) * Vpiⁿ⁻¹[i] / Boiⁿ⁻¹[i] * exp((coⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP) * ΔP
-        tbuf2[i] *= μ[i]                
+        tbuf2[i] *= μ[i] / Δtⁿ⁻¹[]        
     end
     @inbounds @simd for i = 1:length(bviews)
         gviews[i] = bviews[i] * Vⁿ[i] - bviews2[i] * Vⁿ⁻¹[i]

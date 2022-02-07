@@ -30,14 +30,14 @@ function NewtonSolver{T}(prob::NonlinearProblem{T}, linalg::AbstractLinearSolver
     NewtonSolver{T, typeof(linalg)}(; prob, linalg, kwargs...)
 end
 
-function perform_step!(solver::NewtonSolver, n)
+function perform_step!(solver::NewtonSolver, Δt, n)
 
     @unpack P, P_old, r, linalg, prob, P_tol, r_tol = solver
-
+    
     iter, success = 0, false
     for outer iter = 1:solver.maxiters
         J = getjac(linalg, n)
-        val_and_jac!(r, J, P, prob, n)
+        val_and_jac!(r, J, P, Δt, prob, n)
         
         copyto!(P_old, P)
         solve!(P, r, n, linalg)        
