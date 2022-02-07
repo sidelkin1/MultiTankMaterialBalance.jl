@@ -35,3 +35,19 @@ function assess_convergence(x, x_prev, f_x, x_tol, f_tol)
     end
     return x_converged, f_converged
 end
+
+getparams(df::AbstractDataFrame, ::Val{:tanks}) = @view df[df.Parameter .∉ Ref((:Gw, :Jinj, :Jp)), :]
+getparams(df::AbstractDataFrame, ::Val{:wells}) = @view df[df.Parameter .∈ Ref((:Gw, :Jinj, :Jp)), :]
+getparams(df::AbstractDataFrame, ::Val{:tanks}, ::Val{:var}) = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& .!df.Const, :]
+getparams(df::AbstractDataFrame, ::Val{:tanks}, ::Val{:const}) = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& df.Const, :]
+getparams(df::AbstractDataFrame, ::Val{:wells}, ::Val{:var}) = @view df[(df.Parameter .∈ Ref((:Gw, :Jinj, :Jp))) .& .!df.Ignore, :]
+getparams(df::AbstractDataFrame, ::Val{:wells}, ::Val{:const}) = @view df[(df.Parameter .∈ Ref((:Gw, :Jinj, :Jp))) .& df.Ignore, :]
+getparams(df::AbstractDataFrame, ::Val{S}) where {S} = @view df[df.Parameter .=== S, :]
+getparams(df::AbstractDataFrame, ::Val{S}, ::Val{:var}) where {S} = @view df[(df.Parameter .=== S) .& .!df.Const, :]
+getparams(df::AbstractDataFrame, ::Val{S}, ::Val{:const}) where {S} = @view df[(df.Parameter .=== S) .& df.Const, :]
+getparams(df::AbstractDataFrame, ::Val{:Gw}, ::Val{:var}) = @view df[(df.Parameter .=== :Gw) .& .!df.Ignore, :]
+getparams(df::AbstractDataFrame, ::Val{:Jinj}, ::Val{:var}) = @view df[(df.Parameter .=== :Jinj) .& .!df.Ignore, :]
+getparams(df::AbstractDataFrame, ::Val{:Jp}, ::Val{:var}) = @view df[(df.Parameter .=== :Jp) .& .!df.Ignore, :]
+getparams(df::AbstractDataFrame, ::Val{:Gw}, ::Val{:const}) = @view df[(df.Parameter .=== :Gw) .& df.Ignore, :]
+getparams(df::AbstractDataFrame, ::Val{:Jinj}, ::Val{:const}) = @view df[(df.Parameter .=== :Jinj) .& df.Ignore, :]
+getparams(df::AbstractDataFrame, ::Val{:Jp}, ::Val{:const}) = @view df[(df.Parameter .=== :Jp) .& df.Ignore, :]

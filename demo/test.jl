@@ -108,8 +108,8 @@ println(val)
 println(getvalues(targ))
 println(grad)
 println(fd_g)
-@btime solve!($solver)
-@btime solve!($adjoint)
+# @btime solve!($solver)
+# @btime solve!($adjoint)
 
 # Сохраняем результаты
 save_rates!(df_rates, prob, parsed_args["result_prod"], opts["csv"])

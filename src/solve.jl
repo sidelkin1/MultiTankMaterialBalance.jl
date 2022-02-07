@@ -44,7 +44,7 @@ function prepare_step!(prob::NonlinearProblem, n, P)
     @unpack Qsum = prob.cache
 
     update_cache!(prob, n)
-    @inbounds @simd for i = 1:length(P)   
+    @turbo for i = 1:length(P)   
         # Коррекция отборов с учетом верх. и ниж. границ Рпл
         Qliq[i] = (P[i] ≥ Pmin[i]) * Qliq_h[i]
         Qinj[i] = (P[i] ≤ Pmax[i]) * Qinj_h[i]
@@ -56,8 +56,8 @@ end
 
 function accept_step!(prob::NonlinearProblem, n, P)
 
-    params = params = @inbounds prob.pviews[n]
-    @unpack jac_next, Pcalc, Qliq, Gw, M, Pbhp, λ, Qinj, Jinj, Pinj, Δt = params
+    params = @inbounds prob.pviews[n]
+    @unpack jac_next, Pcalc, Δt = params
     @unpack Vwprev, Voprev, Vw, Vo, cwf, cof = prob.cache
 
     # Сохраняем данные на текущем временном шаге
@@ -65,13 +65,9 @@ function accept_step!(prob::NonlinearProblem, n, P)
     copyto!(Vwprev, Vw)
     copyto!(Voprev, Vo)
 
-    @inbounds @simd for i = 1:length(P)
-        # Диагональ якобиана относительно Рпл на пред. временном шаге
+    # Диагональ якобиана относительно Рпл на пред. временном шаге
+    @turbo for i = 1:length(P)        
         jac_next[i] = -(Vw[i] * cwf[i] + Vo[i] * cof[i]) / Δt[]
-
-        # Забойные давления
-        Pbhp[i] = P[i] - Qliq[i] / (Gw[i] * M[i])
-        Pinj[i] = P[i] + λ[i] * Qinj[i] / Jinj[i]
     end
 
     return prob
@@ -85,7 +81,7 @@ function update_cache!(prob::NonlinearProblem{T}, n) where {T}
     if params.Vupd[]
         @unpack Vpi, Swi, Bwi, Boi = params
         @unpack Vwi, Voi = prob.cache
-        @inbounds @simd for i = 1:length(Vpi)
+        @turbo for i = 1:length(Vpi)
             Vwi[i] = Swi[i] * Vpi[i] / Bwi[i]
             Voi[i] = (one(T) - Swi[i]) * Vpi[i] / Boi[i]
         end
@@ -106,7 +102,7 @@ function update_cache!(prob::NonlinearProblem{T}, n) where {T}
     if params.cupd[]
         @unpack cw, co, cf = params
         @unpack cwf, cof = prob.cache        
-        @inbounds @simd for i = 1:length(cf)
+        @turbo for i = 1:length(cf)
             cwf[i] = cw[i] + cf[i]
             cof[i] = co[i] + cf[i]
         end

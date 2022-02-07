@@ -41,7 +41,7 @@ function perform_step!(solver::NewtonSolver, Δt, n)
         
         copyto!(P_old, P)
         solve!(P, r, n, linalg)        
-        @inbounds @simd for i = 1:length(P)
+        @turbo for i = 1:length(P)
             P[i] = P_old[i] - P[i]
         end
 

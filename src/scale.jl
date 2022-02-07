@@ -10,14 +10,14 @@ Base.@kwdef struct SigmoidScaling{T} <: AbstractParametersScaling{T}
 end
 
 function LinearScaling{T}(df::AbstractDataFrame) where {T}
-    df_view = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& .!df.Const, :]
+    df_view = getparams(df, Val(:tanks), Val(:var))
     xrange = @with(df_view, :Max_value .- :Min_value)
     xmin = @with(df_view, @. -:Min_value / xrange)
     LinearScaling{T}(; xrange, xmin)
 end
 
 function SigmoidScaling{T}(df::AbstractDataFrame) where {T}
-    df_view = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& .!df.Const, :]
+    df_view = getparams(df, Val(:tanks), Val(:var))
     xrange = @with(df_view, :Max_value .- :Min_value)
     xmin = @with(df_view, @. -:Min_value / xrange)
     xsigm = Array{T}(undef, length(xrange))
@@ -26,14 +26,14 @@ end
 
 function scalex!(x, y, scale::LinearScaling{T}) where {T}
     @unpack xrange, xmin = scale
-    @inbounds @simd for i = 1:length(x)
+    @turbo for i = 1:length(x)
         x[i] = clamp(xmin[i] + y[i] / xrange[i], zero(T), one(T))
     end
 end
 
 function scalex!(x, y, scale::SigmoidScaling{T}) where {T}
     @unpack xrange, xmin = scale    
-    @inbounds @simd for i = 1:length(x)    		
+    @turbo for i = 1:length(x)
         zmin = T(0.0001) / xrange[i]
         z = clamp(xmin[i] + y[i] / xrange[i], zmin, one(T) - zmin)
         x[i] = log(z / (one(T) - z))
@@ -42,14 +42,14 @@ end
 
 function unscalex!(y, x, scale::LinearScaling)
     @unpack xrange, xmin = scale
-    @inbounds @simd for i = 1:length(y)
+    @turbo for i = 1:length(y)
         y[i] = (x[i] - xmin[i]) * xrange[i]
     end
 end
 
 function unscalex!(y, x, scale::SigmoidScaling{T}) where {T}
     @unpack xrange, xmin, xsigm = scale
-    @inbounds @simd for i = 1:length(y)
+    @turbo for i = 1:length(y)
         xsigm[i] = one(T) / (one(T) + exp(-x[i]))
         y[i] = xrange[i] * (xsigm[i] - xmin[i])
     end
@@ -57,14 +57,14 @@ end
 
 function unscaleg!(g, scale::LinearScaling)
     @unpack xrange = scale
-    @inbounds @simd for i = 1:length(g)
+    @turbo for i = 1:length(g)
         g[i] *= xrange[i]
     end
 end
 
 function unscaleg!(g, scale::SigmoidScaling{T}) where {T}
     @unpack xrange, xsigm = scale
-    @inbounds @simd for i = 1:length(g)
+    @turbo for i = 1:length(g)
         g[i] *= xrange[i] * xsigm[i] * (one(T) - xsigm[i])
     end
 end

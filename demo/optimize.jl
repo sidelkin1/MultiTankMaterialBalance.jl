@@ -76,16 +76,20 @@ function print_result(minx, initial_x, fun::Function, targ::TargetFunction, ::Va
     println("Before optimization:")
     fun(initial_x, [])
     println(getvalues(targ))
+    calc_well_index!(targ)    
     println("After optimization:")
     fun(minx, [])
     println(getvalues(targ))
+    calc_well_index!(targ)    
 end
 
 function print_result(res, initial_x, fun::Function, targ::TargetFunction, ::Val{:SciPy})
     println("Before optimization:")
     fun(initial_x)
     println(getvalues(targ))
+    calc_well_index!(targ)    
     println("After optimization:")
     fun(res["x"])
     println(getvalues(targ))
+    calc_well_index!(targ)    
 end

@@ -42,6 +42,7 @@ Base.@kwdef struct ProblemCache{T<:AbstractFloat}
     Qsum::Vector{T}
     CTC::SparseMatrixCSC{T, Int}
     Cbuf::SparseMatrixCSC{T, Int}
+    diagJ::Vector{T}
 end
 
 Base.@kwdef struct NonlinearProblem{T<:AbstractFloat}
@@ -51,18 +52,18 @@ Base.@kwdef struct NonlinearProblem{T<:AbstractFloat}
     cache::ProblemCache{T}
 end
 
-function build_incidence_matrix(::Type{T}, df_params) where {T}
+function build_incidence_matrix(::Type{T}, df) where {T}
     
     # Нумерация блоков
-    dict = @with df_params begin 
+    dict = @with df begin 
         @_ :Tank::Vector{String} |> 
             unique(__) |> 
             Dict(__ .=> 1:length(__))
     end
     
     # Номера соседних блоков
-    df = @view df_params[df_params.Parameter .=== :Tconn, :]
-    N = @with df begin
+    df_view = getparams(df, Val(:Tconn))
+    N = @with df_view begin
         @_ [:Tank :Neighb]::Matrix{String} |> 
             unique(__, dims=1) |> 
             getindex.(Ref(dict), __)
@@ -75,21 +76,21 @@ function build_incidence_matrix(::Type{T}, df_params) where {T}
     return C
 end
 
-function build_parameter_matrix(::Type{T}, df_params, name, N, M) where {T}
+function build_parameter_matrix(::Type{T}, df, name::Symbol, N, M) where {T}
     A = Array{T}(undef, N, M)
-    df = @view df_params[df_params.Parameter .=== name, :]
-    @with df @byrow begin
+    df_view = getparams(df, Val(name))
+    @with df_view @byrow begin
         cols = UnitRange(:Jstart::Int, :Jstop::Int)
         A[:Istart::Int, cols] .= convert(T, :Init_value)::T
     end
     return A
 end
 
-function build_update_matrix(::Type{T}, df_params, names, M) where {T}
+function build_update_matrix(::Type{T}, df, names::NTuple{N, Symbol}, M) where {T, N}
     A = falses(1, M)
     for name ∈ names
-        df = @view df_params[df_params.Parameter .=== name, :]
-        A[df.Jstart] .= true
+        df_view = getparams(df, Val(name))
+        A[df_view.Jstart] .= true
     end
     return A
 end
@@ -143,7 +144,7 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         # Вспомогательные флаги обновления буферов
         Tupd = build_update_matrix(T, df_params, (:Tconn,), Nd),
         Vupd = build_update_matrix(T, df_params, (:Vpi, :Bwi, :Boi, :Swi,), Nd),
-        cupd = build_update_matrix(T, df_params, (:cw, :co, :cf), Nd,),
+        cupd = build_update_matrix(T, df_params, (:cw, :co, :cf,), Nd),
         
         # Выходные переменные модели
         Pcalc = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
@@ -156,8 +157,6 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         Pinj = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
         jac_next = Array{T}(undef, Nt, Nd),
     )
-
-    kwargs.Jinj ./= kwargs.λ
 
     params, pviews = params_and_views(ModelParameters, kwargs)    
     cache = ProblemCache{T}(Nt, Nc)
@@ -176,23 +175,23 @@ function ProblemCache{T}(Nt, Nc) where {T}
         cof = Array{T}(undef, Nt),
         Qsum = Array{T}(undef, Nt),
         CTC = spzeros(T, Nt, Nt),
-        Cbuf = spzeros(T, Nc, Nt),        
+        Cbuf = spzeros(T, Nc, Nt),     
+        diagJ = Array{T}(undef, Nt),
     )
     ProblemCache{T}(; kwargs...)
 end
 
 function val_and_jac!(r, J, P, Δt, prob::NonlinearProblem, n)
 
-    params = @inbounds prob.pviews[n]
     @unpack Vwprev, Voprev, Vw, Vo, CTC = prob.cache    
-    @unpack Vwi, Voi, cwf, cof, Qsum = prob.cache
-    @unpack Pi, Tconst = params
+    @unpack Vwi, Voi, cwf, cof, Qsum, diagJ = prob.cache
+    @unpack Pi, Tconst = @inbounds prob.pviews[n]
 
     # Инициализация невязки и якобиана
     mul!(r, CTC, P)
     copyto!(J, CTC)
 
-    @inbounds @simd for i = 1:length(P)
+    @turbo for i = 1:length(P)
         # Поровые объемы воды и нефти в пов. усл.
         Vw[i] = Vwi[i] * exp(cwf[i] * (P[i] - Pi[i]))
         Vo[i] = Voi[i] * exp(cof[i] * (P[i] - Pi[i]))
@@ -202,7 +201,13 @@ function val_and_jac!(r, J, P, Δt, prob::NonlinearProblem, n)
         r[i] += Tconst[i] * (P[i] - Pi[i]) + Qsum[i]
 
         # В целом, якобиан статичен за исключением диагональных элементов
-        J[i, i] += Tconst[i] + (Vw[i] * cwf[i] + Vo[i] * cof[i]) / Δt
+        diagJ[i] = Tconst[i] + (Vw[i] * cwf[i] + Vo[i] * cof[i]) / Δt
+    end
+
+    # Обновляем главную диагональ якобиана
+    # TODO: Вынесли отдельно, т.к. макрос '@turbo' не работает со 'Sparse Arrays'
+    @inbounds @simd for i = 1:length(diagJ)        
+        J[i, i] += diagJ[i]
     end    
 
     return r, J

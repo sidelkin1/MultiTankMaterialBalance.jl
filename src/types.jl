@@ -21,3 +21,4 @@ const RowRange{T} = SubArray{T, 1, Matrix{T}, Tuple{Int, UnitRange{Int}}, true}
 const CartesianView{T} = SubArray{T, 1, Matrix{T}, Tuple{Vector{CartesianIndex{2}}}, false}
 const VectorRange{T} = SubArray{T, 1, Vector{T}, Tuple{UnitRange{Int}}, true}
 const VectorView{T} = SubArray{T, 1, Vector{T}, Tuple{Vector{Int}}, false}
+const VectorViewBool = SubArray{Bool, 1, BitVector, Tuple{Vector{Int}}, false}

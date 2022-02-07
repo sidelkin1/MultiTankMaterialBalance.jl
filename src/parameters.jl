@@ -86,9 +86,9 @@ function FittingSet{T}(df::AbstractDataFrame, prob::NonlinearProblem{T}, scale::
 
     # Число соединений и блоков
     Nc, Nt = size(prob.C)
-
-    # Фильтруем параметры, требующие настройки (Const == false)    
-    df_view = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& .!df.Const, :]
+    
+    # Выделяем память под буферы
+    df_view = getparams(df, Val(:tanks), Val(:var))
     cache = FittingCache{T}(Nt, Nc, nrow(df_view))
     
     stop = 0
@@ -123,7 +123,7 @@ function getparams!!(x, fset::FittingSet)
     copyto!(x, getparams!(fset))    
 end
 
-function setparams!(fset::FittingSet, xnew)    
+function setparams!(fset::FittingSet, xnew)
     @unpack params, scale = fset
     @unpack xbuf, ybuf = fset.cache
 

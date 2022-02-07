@@ -8,7 +8,7 @@ function grad!(g, fset::FittingSet{T}, prob::NonlinearProblem, targ::TargetFunct
     map(fset.params) do param
         grad!(cache, param, prob, targ, μ, n)
     end
-    @inbounds @simd for i = 1:length(g)
+    @turbo for i = 1:length(g)
         g[i] += gbuf[i]
     end
 
@@ -24,7 +24,7 @@ function grad!(cache::FittingCache, param::FittingParameter{:Tconn}, prob::Nonli
     
     mul!(cbuf, C, Pcalc)
     mul!(cbuf2, C, μ)
-    @inbounds @simd for i = 1:length(cbuf)
+    @turbo for i = 1:length(cbuf)
         cbuf[i] *= cbuf2[i]
     end
     @inbounds @simd for i = 1:length(bviews)
@@ -41,7 +41,7 @@ function grad!(cache::FittingCache, param::FittingParameter{:Tconst}, prob::Nonl
     @unpack tbuf = cache
     V = @inbounds param.vviews[n]
 
-    @inbounds @simd for i = 1:length(tbuf)
+    @turbo for i = 1:length(tbuf)
         tbuf[i] = (Pcalc[i] - Pi[i]) * μ[i]
     end
     @inbounds @simd for i = 1:length(bviews)
@@ -60,7 +60,7 @@ function grad!(cache::FittingCache{T}, param::FittingParameter{:Vpi, T}, prob::N
     Vⁿ = @inbounds param.vviews[n]
     Vⁿ⁻¹ = @inbounds param.vviews[n-1]
 
-    @inbounds @simd for i = 1:length(tbuf)
+    @turbo for i = 1:length(tbuf)
         ΔP = Pcalcⁿ[i] - Piⁿ[i]
         tbuf[i] = Swiⁿ[i] / Bwiⁿ[i] * exp((cwⁿ[i] + cfⁿ[i]) * ΔP)
         tbuf[i] += (one(T) - Swiⁿ[i]) / Boiⁿ[i] * exp((coⁿ[i] + cfⁿ[i]) * ΔP)
@@ -86,7 +86,7 @@ function grad!(cache::FittingCache{T}, param::FittingParameter{:cf, T}, prob::No
     Vⁿ = @inbounds param.vviews[n]
     Vⁿ⁻¹ = @inbounds param.vviews[n-1]
 
-    @inbounds @simd for i = 1:length(tbuf)
+    @turbo for i = 1:length(tbuf)
         ΔP = Pcalcⁿ[i] - Piⁿ[i]
         tbuf[i] = Swiⁿ[i] * Vpiⁿ[i] / Bwiⁿ[i] * exp((cwⁿ[i] + cfⁿ[i]) * ΔP) * ΔP
         tbuf[i] += (one(T) - Swiⁿ[i]) * Vpiⁿ[i] / Boiⁿ[i] * exp((coⁿ[i] + cfⁿ[i]) * ΔP) * ΔP
@@ -111,7 +111,7 @@ function grad!(cache::FittingCache, param::FittingParameter{:λ}, prob::Nonlinea
     V = @inbounds param.vviews[n]
     gλ = @inbounds targ.terms.Pinj.gλviews[n]
     
-    @inbounds @simd for i = 1:length(tbuf)
+    @turbo for i = 1:length(tbuf)
         tbuf[i] = -Qinj[i] * μ[i] + gλ[i]
     end
     @inbounds @simd for i = 1:length(bviews)
@@ -121,14 +121,9 @@ function grad!(cache::FittingCache, param::FittingParameter{:λ}, prob::Nonlinea
     return cache
 end
 
-function grad!(g, targ::TargetFunction)
-    grad!(g, targ.terms.L2)
-end
-
-function grad!(g, term::L2TargetTerm{T}) where {T}
-    @unpack α, x, αₓ = term
-    @inbounds @simd for i = 1:length(g)
-        g[i] += α * T(2) * αₓ[i] * x[i]
+function grad!(g, term::L2TargetTerm)
+    @turbo for i = 1:length(g)
+        g[i] += term.g[i]
     end
     return g
 end

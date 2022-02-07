@@ -31,7 +31,7 @@ function solve!(solver::AdjointSolver{T}; verbose=false) where {T}
 
         # Вычисление сопряженного вектора
         grad!(gp, targ, n)
-        @simd for i = 1:length(gp)
+        @turbo for i = 1:length(gp)
             gp[i] = -(jac_next[i] * μ[i] + gp[i])
         end
         # TODO: Почему-то быстрее, чем 'ldiv!'
@@ -43,8 +43,8 @@ function solve!(solver::AdjointSolver{T}; verbose=false) where {T}
         verbose && println("n: $n, mu: $μ")
     end
 
-    # Градиент целевой функции
-    grad!(g, targ)    
+    # Градиент L2-члена целевой функции
+    grad!(g, targ.terms.L2)    
     # Коррекция градиента в соответствии с масштабированием параметров
     unscaleg!(g, fset.scale)
 

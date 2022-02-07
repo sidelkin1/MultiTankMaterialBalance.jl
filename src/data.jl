@@ -74,7 +74,7 @@ function read_params(path, opts)
 end
 
 function mark_null_params!(df::AbstractDataFrame, name::Symbol, isnull)
-    df_view = @view df[df.Parameter .=== name, :]
+    df_view = getparams(df, Val(name))
     df_view.Ignore .|= @with df_view @byrow begin
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
         all(isnull[rows, :Istart::Int])
@@ -84,7 +84,7 @@ function mark_null_params!(df::AbstractDataFrame, name::Symbol, isnull)
 end
 
 function set_null_weights!(weight, df::AbstractDataFrame, name::Symbol)    
-    df_view = @view df[(df.Parameter .=== name) .& df.Ignore, :]
+    df_view = getparams(df, Val(name), Val(:const))
     @with df_view @byrow begin
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
         # TODO: Выбрано умножение для 'missing propagation',
@@ -111,7 +111,7 @@ function process_params!(df_params::AbstractDataFrame, df_rates::AbstractDataFra
     end
 
     # Для параметров соединений ставим номер соединения
-    df = @view df_params[df_params.Parameter .=== :Tconn, :]
+    df = getparams(df_params, Val(:Tconn))
     @with df begin
         connections = numberof(eachrow([:Tank :Neighb]::Matrix{String}))
         :Istart .= getindex.(Ref(connections), eachrow([:Tank :Neighb]))
@@ -190,17 +190,20 @@ end
 function save_params!(df::AbstractDataFrame, fset::FittingSet, targ::TargetFunction, path, opts)
 
     @transform!(df, :Calc_value = :Init_value)    
-    df_view = @view df[(df.Parameter .∉ Ref((:Gw, :Jinj, :Jp))) .& .!df.Const, :]
+
+    # Заполняем параметры блоков
+    df_view = getparams(df, Val(:tanks), Val(:var))
     copyto!(df_view.Calc_value, fset.cache.ybuf)
 
-    # Заполняем геом. факторы и Кпрод
-    df_view = @view df[(df.Parameter .=== :Gw) .& .!df.Ignore, :]
-    copyto!(df_view.Calc_value, targ.wviews.Gw.yviews)    
-    df_view = @view df[(df.Parameter .=== :Jinj) .& .!df.Ignore, :]
+    # Заполняем параметры скважин
+    df_view = getparams(df, Val(:Gw), Val(:var))    
+    copyto!(df_view.Calc_value, targ.wviews.Gw.yviews)
+    df_view = getparams(df, Val(:Jinj), Val(:var))
     copyto!(df_view.Calc_value, targ.wviews.Jinj.yviews)
-    df_view = @view df[(df.Parameter .=== :Jp) .& .!df.Ignore, :]
+    df_view = getparams(df, Val(:Jp), Val(:var))
     copyto!(df_view.Calc_value, targ.wviews.Jp.yviews)
 
+    # Переименовываем и убираем лишние столбцы 
     replace!(df.Parameter, reverse.(PSYMS)...)
     select!(df, Not([:Istart, :Jstart, :Jstop, :Link, :Const, :Ignore])) 
 
@@ -213,8 +216,8 @@ end
 
 function split_params!(df::AbstractDataFrame, src::Symbol, dst::Symbol)
 
-    df_src = @view df[df.Parameter .=== src, :]
-    df_dst = @view df[df.Parameter .=== dst, :]
+    df_src = getparams(df, Val(src))
+    df_dst = getparams(df, Val(dst))
 
     df_new = map(eachrow(df_dst)) do dfr
         # Критерий пересечения интервалов
@@ -275,7 +278,7 @@ function add_geom_factor!(df::AbstractDataFrame, name::Symbol, mobt)
         :Min_value /= Mmin
         :Max_value /= Mmax
         
-        # Обрабатываем случай, когда Gmin >= Gmax
+        # Обрабатываем случай, когда Gmin > Gmax
         if :Max_value < :Min_value
             # Корректируем мин./макс. подвижность, чтобы Gmin == Gmax
             Mmin *= √(:Min_value / :Max_value)

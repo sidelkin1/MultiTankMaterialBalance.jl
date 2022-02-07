@@ -73,7 +73,7 @@ function main()
     # Список оптимизируемых параметров
     fset = FittingSet{Float}(df_params, prob, scale)
     # Целевая функция
-    targ = TargetFunction{Float}(df_rates, prob, fset, opts["target_fun"])
+    targ = TargetFunction{Float}(df_rates, df_params, prob, fset, opts["target_fun"])
     # Алгоритм расчета градиента целевой функции
     adjoint = AdjointSolver{Float}(prob, targ, linalg, fset)
 
@@ -88,9 +88,9 @@ function main()
     # Распечатка результата
     print_result(res, initial_x, optim_fun, targ, Val(optim_pkg))
 
-    # Сохраняем результаты
+    # Сохраняем результаты    
     save_rates!(df_rates, prob, parsed_args["result_prod"], opts["csv"])
-    save_params!(df_params, fset, parsed_args["result_params"], opts["csv"])
+    save_params!(df_params, fset, targ, parsed_args["result_params"], opts["csv"])
 
     nothing
 end
