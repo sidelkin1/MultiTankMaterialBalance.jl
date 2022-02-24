@@ -24,7 +24,13 @@ function read_rates(path, opts)
         :Pres_max => Float64        
     )
     # TODO: Принудительно убрано преобразование столбцов в 'PooledArray' (хотя неэффективно с точки зрения памяти)
-    df = CSV.File(opencsv(path); dateformat=opts["dateformat"], types, pool=false) |> DataFrame
+    opts_csv = Dict(
+        :dateformat => opts["dateformat"],
+        :delim => opts["delim"],
+        :types => types,
+        :pool => false
+    )
+    df = CSV.File(opencsv(path); opts_csv...) |> DataFrame
 
     # Убираем веса на пропущенные замеры давлений
     @with df begin
@@ -54,7 +60,13 @@ function read_params(path, opts)
         :alpha => Float64
     )
     # TODO: Принудительно убрано преобразование столбцов в 'PooledArray' (хотя неэффективно с точки зрения памяти)
-    df = CSV.File(opencsv(path); dateformat=opts["dateformat"], types, pool=false) |> DataFrame
+    opts_csv = Dict(
+        :dateformat => opts["dateformat"],
+        :delim => opts["delim"],
+        :types => types,
+        :pool => false
+    )
+    df = CSV.File(opencsv(path); opts_csv...) |> DataFrame
     
     # Заполняем пропущенные значения
     crit = ismissing.(df.Neighb)
