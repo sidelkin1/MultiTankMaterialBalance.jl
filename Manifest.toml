@@ -169,6 +169,12 @@ git-tree-sha1 = "04d13bfa8ef11720c24e4d840c0033d145537df7"
 uuid = "48062228-2e41-5def-b9a4-89aafe57970f"
 version = "0.9.17"
 
+[[FiniteDiff]]
+deps = ["ArrayInterface", "LinearAlgebra", "Requires", "SparseArrays", "StaticArrays"]
+git-tree-sha1 = "ec299fdc8f49ae450807b0cb1d161c6b76fd2b60"
+uuid = "6a86dc24-6348-571c-b903-95158fe2bd41"
+version = "2.10.1"
+
 [[Formatting]]
 deps = ["Printf"]
 git-tree-sha1 = "8339d61043228fdd3eb658d86c926cb282ae72a8"
