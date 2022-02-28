@@ -65,7 +65,7 @@ end
     grad = similar(initial_x)
 
     # Вычисление градиента методом конечных разностей
-    grad_fd = FiniteDiff.finite_difference_gradient(x -> optim_fun(x, Float[]), initial_x, Val(:central))
+    grad_fd = FiniteDiff.finite_difference_gradient(x -> optim_fun(x, Float[]), initial_x, Val(:central); relstep=1e-5)
 
     # Вычисление градиента методом сопряженных уравнений
     _ = optim_fun(initial_x, grad)
