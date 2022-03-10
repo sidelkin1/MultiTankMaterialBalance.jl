@@ -28,7 +28,7 @@ function init_values!(P, prob::NonlinearProblem)
     @unpack Pi = @inbounds prob.pviews[1]
     @unpack Vwprev, Voprev, Vwi, Voi = prob.cache    
     
-    # Инициализация на нулевом временном шаге
+    # Initialization at zero time step
     update_cache!(prob, 1)
     copyto!(P, Pi)
     copyto!(Vwprev, Vwi)
@@ -45,7 +45,7 @@ function prepare_step!(prob::NonlinearProblem, n, P)
 
     update_cache!(prob, n)
     @turbo for i = 1:length(P)   
-        # Коррекция отборов с учетом верх. и ниж. границ Рпл
+        # Correction of rates taking into account the upper and lower bounds of pressure
         Qliq[i] = (P[i] ≥ Pmin[i]) * Qliq_h[i]
         Qinj[i] = (P[i] ≤ Pmax[i]) * Qinj_h[i]
         Qsum[i] = Qliq[i] - λ[i] * Qinj[i]    
@@ -60,12 +60,12 @@ function accept_step!(prob::NonlinearProblem, n, P)
     @unpack jac_next, Pcalc, Δt = params
     @unpack Vwprev, Voprev, Vw, Vo, cwf, cof = prob.cache
 
-    # Сохраняем данные на текущем временном шаге
+    # Saving data at the current time step
     copyto!(Pcalc, P)
     copyto!(Vwprev, Vw)
     copyto!(Voprev, Vo)
 
-    # Диагональ якобиана относительно Рпл на пред. временном шаге
+    # The diagonal of the jacobian with respect to reservoir pressure on the previous time step
     @turbo for i = 1:length(P)        
         jac_next[i] = -(Vw[i] * cwf[i] + Vo[i] * cof[i]) / Δt[]
     end
@@ -77,7 +77,7 @@ function update_cache!(prob::NonlinearProblem{T}, n) where {T}
 
     params = @inbounds prob.pviews[n]
 
-    # Начальные поровые объемы флюидов
+    # Initial porous volumes of fluids
     if params.Vupd[]
         @unpack Vpi, Swi, Bwi, Boi = params
         @unpack Vwi, Voi = prob.cache
@@ -87,18 +87,18 @@ function update_cache!(prob::NonlinearProblem{T}, n) where {T}
         end
     end
 
-    # Элементы якобиана, не зависящие от Рпл
+    # Elements of the jacobian that do not depend on reservoir pressure
     if params.Tupd[]
         @unpack Tconn = params
         @unpack CTC, Cbuf = prob.cache
         # copyto!(Cbuf, prob.C)
         # lmul!(Diagonal(Tconn), Cbuf)
         # mul!(CTC, prob.C', Cbuf)
-        # FIXED: Для разреженной матрицы 'C' конструкция ниже оказывается быстрее
+        # FIXED: For a sparse matrix 'C', the construction below is faster
         CTC .= prob.C' * Diagonal(Tconn) * prob.C
     end
 
-    # Суммарные сжимаемости системы пласт-флюид
+    # Total compressibility of the reservoir-fluid system
     if params.cupd[]
         @unpack cw, co, cf = params
         @unpack cwf, cof = prob.cache        

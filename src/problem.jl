@@ -54,14 +54,14 @@ end
 
 function build_incidence_matrix(::Type{T}, df) where {T}
     
-    # Нумерация блоков
+    # Tanks numbering
     dict = @with df begin 
         @_ :Tank::Vector{String} |> 
             unique(__) |> 
             Dict(__ .=> 1:length(__))
     end
     
-    # Номера соседних блоков
+    # Numbers of neighbouring tanks
     df_view = getparams(df, Val(:Tconn))
     N = @with df_view begin
         @_ [:Tank :Neighb]::Matrix{String} |> 
@@ -69,7 +69,7 @@ function build_incidence_matrix(::Type{T}, df) where {T}
             getindex.(Ref(dict), __)
     end
 
-    # Матрица смежности блоков
+    # Tank adjacency matrix
     C = spzeros(T, size(N, 1), length(dict))
     C[CartesianIndex.(axes(C, 1), N)] .= [-1 1]
 
@@ -112,17 +112,17 @@ end
 
 function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDataFrame) where {T}
     
-    # Формируем матрицу смежности
+    # Adjacency matrix building
     C = build_incidence_matrix(T, df_params)    
-    # Число соединений и блоков
+    # Number of connections and tanks
     Nc, Nt = size(C)
-    # Число временных шагов
+    # Number of time steps
     dates = unique(df_rates.Date::Vector{Date})
     Nd = length(dates)
     
-    # Формируем матрицы параметров и отборов
+    # Form matrices of parameters and history of production/injection
     kwargs = (
-        # Входные переменные модели    
+        # Input variables of model
         Δt = build_rate_matrix(T, daysinmonth.(dates), 1, Nd),    
         Tconn = build_parameter_matrix(T, df_params, :Tconn, Nc, Nd),
         Pi = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
@@ -141,12 +141,12 @@ function NonlinearProblem{T}(df_rates::AbstractDataFrame, df_params::AbstractDat
         Qinj_h = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),
         M = build_rate_matrix(T, df_rates.Total_mobility, Nt, Nd),
 
-        # Вспомогательные флаги обновления буферов
+        # Auxiliary buffer update flags
         Tupd = build_update_matrix(T, df_params, (:Tconn,), Nd),
         Vupd = build_update_matrix(T, df_params, (:Vpi, :Bwi, :Boi, :Swi,), Nd),
         cupd = build_update_matrix(T, df_params, (:cw, :co, :cf,), Nd),
         
-        # Выходные переменные модели
+        # Output variables of model
         Pcalc = build_parameter_matrix(T, df_params, :Pi, Nt, Nd),
         Qliq = build_rate_matrix(T, df_rates.Qliq, Nt, Nd),
         Qinj = build_rate_matrix(T, df_rates.Qinj, Nt, Nd),
@@ -187,25 +187,25 @@ function val_and_jac!(r, J, P, Δt, prob::NonlinearProblem, n)
     @unpack Vwi, Voi, cwf, cof, Qsum, diagJ = prob.cache
     @unpack Pi, Tconst = @inbounds prob.pviews[n]
 
-    # Инициализация невязки и якобиана
+    # Residual and Jacobian initialization
     mul!(r, CTC, P)
     copyto!(J, CTC)
 
     @turbo for i = 1:length(P)
-        # Поровые объемы воды и нефти в пов. усл.
+        # Pore volumes of water and oil in surface conditions
         Vw[i] = Vwi[i] * exp(cwf[i] * (P[i] - Pi[i]))
         Vo[i] = Voi[i] * exp(cof[i] * (P[i] - Pi[i]))
 
-        # Обновляем вектор невязки до выполнения условия ∥r∥ ≈ 0
+        # Update the residual vector until the condition is met ∥r∥ ≈ 0
         r[i] += (Vw[i] - Vwprev[i] + Vo[i] - Voprev[i]) / Δt
         r[i] += Tconst[i] * (P[i] - Pi[i]) + Qsum[i]
 
-        # В целом, якобиан статичен за исключением диагональных элементов
+        # In general, the Jacobian is static except for the diagonal elements
         diagJ[i] = Tconst[i] + (Vw[i] * cwf[i] + Vo[i] * cof[i]) / Δt
     end
 
-    # Обновляем главную диагональ якобиана
-    # TODO: Вынесли отдельно, т.к. макрос '@turbo' не работает со 'Sparse Arrays'
+    # Update the main diagonal of the Jacobian
+    # TODO: We took it out from previous loop, because macro '@turbo' does not work with 'Sparse Arrays'
     @inbounds @simd for i = 1:length(diagJ)        
         J[i, i] += diagJ[i]
     end    

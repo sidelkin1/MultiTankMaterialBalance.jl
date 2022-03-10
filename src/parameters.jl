@@ -1,12 +1,12 @@
 Base.@kwdef struct FittingParameter{S, T} <: AbstractFittingParameter{T}    
-    xviews::VectorRange{T}                              # ссылки на частичный диапазон глобального вектора параметров
-    pviews::Vector{RowRange{T}}                         # ссылки на внутренний массив параметров модели (на весь периода закрепеления)
-    yviews::CartesianView{T}                            # ссылки на внутренний массив параметров модели (на начало периода закрепеления)
-    gviews::VectorRange{T}                              # ссылки на частичный диапазон глобального вектора градиента
-    bviews::VectorView{T}                               # ссылки на расчетный буфер 1
-    bviews2::VectorView{T}                              # ссылки на расчетный буфер 2
-    V::BitMatrix                                        # массив периодов закрепления параметра
-    vviews::Vector{ColumnSliceBool}                     # ссылки на столбцы массива периода действия параметра
+    xviews::VectorRange{T}                              # references to a partial range of the global parameter vector
+    pviews::Vector{RowRange{T}}                         # references to the internal array of model parameters (for the entire period of fixing)
+    yviews::CartesianView{T}                            # references to the internal array of model parameters (at the beginning of the period of fixing)
+    gviews::VectorRange{T}                              # references to a partial range of the global gradient vector
+    bviews::VectorView{T}                               # references to auxiliary buffer 1
+    bviews2::VectorView{T}                              # references to auxiliary buffer 1
+    V::BitMatrix                                        # array of parameter fixing periods
+    vviews::Vector{ColumnSliceBool}                     # references to columns of the array of the period of validity of the parameter
 end
 
 Base.@kwdef struct FittingCache{T<:AbstractFloat}
@@ -57,10 +57,10 @@ end
 
 function FittingParameter{S, T}(df::AbstractDataFrame, prob::NonlinearProblem{T}, cache::FittingCache{T}, rng) where {S, T}
     
-    # Кол-во временных шагов
+    # Number of time steps
     Nd = length(prob.pviews)
 
-    # Расчетные буферы
+    # Auxiliary buffers
     idx = df[:, :Istart]
     if S === :Tconn 
         bviews = view(cache.cbuf, idx)
@@ -70,13 +70,13 @@ function FittingParameter{S, T}(df::AbstractDataFrame, prob::NonlinearProblem{T}
         bviews2 = view(cache.tbuf2, idx)
     end
 
-    # Ссылки на глобальные векторы
+    # References to global vectors
     xviews = view(cache.ybuf, rng)
     gviews = view(cache.gbuf, rng)        
 
-    # Ссылки на параметры внутри модели
+    # References to internal parameters of model
     pviews, yviews = build_fitting_views(df, prob, S)
-    # Периоды закрепления параметров
+    # Parameter fixing periods
     V, vviews = build_validity_matrix(df, nrow(df), Nd)
 
     FittingParameter{S, T}(; xviews, pviews, yviews, gviews, bviews, bviews2, V, vviews)
@@ -84,16 +84,16 @@ end
 
 function FittingSet{T}(df::AbstractDataFrame, prob::NonlinearProblem{T}, scale::AbstractParametersScaling{T}) where {T}
 
-    # Число соединений и блоков
+    # Number of connections and tanks
     Nc, Nt = size(prob.C)
     
-    # Выделяем память под буферы
+    # Allocate memory for buffers
     df_view = getparams(df, Val(:tanks), Val(:var))
     cache = FittingCache{T}(Nt, Nc, nrow(df_view))
     
     stop = 0
-    # FIXED: Сам по себе 'map' для 'GroupedDataFrame' 
-    # невозможен (reserved), но можно по 'pairs(..)'
+    # FIXED: By itself 'map' for 'GroupedDataFrame'
+    # is not possible (reserved), but possible by 'pairs(..)'
     gd = groupby(df_view, :Parameter)
     params = map(pairs(gd)) do (key, df)
         sym = key.Parameter
@@ -109,7 +109,7 @@ function getparams!(fset::FittingSet)
     @unpack params, scale = fset
     @unpack xbuf, ybuf = fset.cache
 
-    # FIXED: Использование 'map' вместо 'for' сохраняет 'type-stability'
+    # FIXED: Using 'map' instead of 'for' preserves 'type-stability'
     map(params) do param
         @unpack xviews, yviews = param    
         copyto!(xviews, yviews)        
@@ -130,10 +130,10 @@ function setparams!(fset::FittingSet, xnew)
     copyto!(xbuf, xnew)
     unscalex!(ybuf, xbuf, scale)
 
-    # FIXED: Использование 'map' вместо 'for' сохраняет 'type-stability'
+    # FIXED: Using 'map' instead of 'for' preserves 'type-stability'
     map(params) do param
         @unpack xviews, pviews = param
-        # FIXED: Быстрее, чем 'fill!.(pviews, xviews)'
+        # FIXED: Faster than 'fill!.(pviews, xviews)'
         @inbounds @simd for i = 1:length(xviews)
             fill!(pviews[i], xviews[i])
         end

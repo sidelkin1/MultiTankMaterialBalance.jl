@@ -4,30 +4,32 @@
 [![Coverage](https://codecov.io/gh/sidelkin1/MultiTankMaterialBalance.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/sidelkin1/MultiTankMaterialBalance.jl)
 [![DOI:10.1088/1755-1315/808/1/012034](https://img.shields.io/badge/DOI-10.1088%2F1755--1315%2F808%2F1%2F012034-blue)](https://doi.org/10.1088/1755-1315/808/1/012034)
 
-В пакете реализована модель многоблочного материального баланса. Модель предназначена для прогноза пластового давления в блоках с учетом:
+*Read this in other languages: [English](README.md), [Русский](README.ru.md)*
 
-- Отборов жидкости и закачки воды через скважины внутри блоков
-- Перетоков флюидов между соседними блоками из-за разности давления
-- Притока воды из аквифера через блоки на внешней границе залежи
+The package implements a multi-tank material balance model. The model is designed to predict reservoir pressure in tanks, taking into account:
 
-## Особенности пакета:
+- Liquid production and water injection through wells inside the tanks
+- Fluid flows between neighboring tanks due to pressure difference
+- Water inflow from the aquifer through tanks at the outer boundary of the reservoir
 
-- Неявная численная схема для расчета пластового давления блоках на базе метода Ньютона
-- Аналитическое вычисление якобиана
-- Вычисление градиента относительно параметров блоков на базе метода сопряженных уравнений
-- Реализация целевой функции с автоматической подгонкой коэффициентов продуктивности/приемистости скважин
+## Package features:
 
-## Интерактивный пример работы с пакетом
+- Implicit numerical scheme for calculating reservoir pressure in tanks based on the Newton method
+- Analytic calculation of the jacobian
+- Gradient calculation with respect to tank parameters based on the adjoint equation method
+- Implementation of the objective function with automatic adjustment of well productivity/injectivity
 
-Для понимании теории и практики работы с пакетом создан [обучающий пример](https://github.com/sidelkin1/multitank-matbal-tutorial) на базе Jupyter Notebook.
+## Interactive example of package using
 
-## Интерфейс командной строки (CLI)
+To understand the theory and practice of working with the package [training example](https://github.com/sidelkin1/multitank-matbal-tutorial) was created based on Jupyter Notebook.
 
-Для работы с пакетом реализован [интерфейс командной строки](https://github.com/sidelkin1/multitank-matbal-cli) (CLI). В нем реализована автоматическая настройки параметров блоков.
+## Command language interface (CLI)
 
-## Цитирование
+A [command line interface](https://github.com/sidelkin1/multitank-matbal-cli) (CLI) is created for working with the package. It implements automatic fitting of tank parameters.
 
-Для цитирования использования пакета `MultiTankMaterialBalance` используйте следующие данные
+## Citation
+
+If you use `MultiTankMaterialBalance` package in your research, please cite this paper:
 
 ```tex
 @article{article,

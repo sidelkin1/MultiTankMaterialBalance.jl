@@ -2,9 +2,9 @@ function grad!(g, fset::FittingSet{T}, prob::NonlinearProblem, targ::TargetFunct
     @unpack cache = fset
     @unpack gbuf = cache
 
-    # Расчет градиента по каждой группе параметров
+    # Calculation of the gradient for each group of parameters
     fill!(gbuf, zero(T))
-    # FIXED: Использование 'map' вместо 'for' сохраняет 'type-stability'
+    # FIXED: Using 'map' instead of 'for' preserves 'type-stability'
     map(fset.params) do param
         grad!(cache, param, prob, targ, μ, n)
     end

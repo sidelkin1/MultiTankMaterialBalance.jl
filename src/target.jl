@@ -83,30 +83,30 @@ end
 
 function WellIndexSolver{T}(df::AbstractDataFrame, Qobs, Wobs, shape, α) where {T}
 
-    # Индексы интервалов закрепления
+    # Indices of fixing intervals
     idx = @with df begin
         rng = UnitRange.(:Jstart, :Jstop)        
         getindex.(Ref(LinearIndices(shape)), :Istart, rng)
     end
     
-    # Заполнение системной матрицы дебитов (Q ⋅ J⁻¹ = ΔP)
+    # Fill in system matrix of rates (Q ⋅ J⁻¹ = ΔP)
     Q = spzeros(T, length(Qobs), nrow(df))    
     @_ map(_1[_2] .= Qobs[_2], eachcol(Q), idx)
 
-    # Диагональная матрица весов
+    # Diagonal weight matrix
     Dw = Diagonal(replace(Wobs, missing => zero(T)))
     
-    # Матрица для расчет обратного Кпрод (Ĵ⁻¹ = B ⋅ ΔP)
+    # Matrix for calculating reciprocal PI (Ĵ⁻¹ = B ⋅ ΔP)
     B = dropzeros(Q' * Dw * Q)
     map!(inv, B.nzval, B.nzval)
     B = dropzeros(B * Q' * Dw)
 
-    # Матрица для расчета взвешенной суммы квадратов остатков (β = ΔPᵀ ⋅ W ⋅ ΔP)
+    # Matrix for calculating weighted sum of squared residuals (β = ΔPᵀ ⋅ W ⋅ ΔP)
     lmul!(T(2) * α, Dw)
     W = I - Q * B
     W = dropzeros(W' * Dw * W)
 
-    # Параметры для расчета Кпрод
+    # Parameters for calculating PI
     params = (      
         J⁻¹ = Array{T}(undef, nrow(df)),
         lb = falses(nrow(df)),
@@ -117,7 +117,7 @@ function WellIndexSolver{T}(df::AbstractDataFrame, Qobs, Wobs, shape, α) where 
         ΔPmax = Q * inv.(df.Min_value),
     )
     
-    # Ссылки на флаги выхода Кпрод (ΔP) за границы [lb, ub]    
+    # References to flags that indicate that PI (ΔP) is out of bounds [lb, ub]    
     nums = Array{Int}(undef, length(Qobs))
     @_ map(nums[_1] .= _2, idx, axes(df, 1))
     lbviews = view(params.lb, nums)
@@ -128,21 +128,21 @@ end
 
 function WellIndexViews{S, T}(df::AbstractDataFrame, prob::NonlinearProblem{T}, J⁻¹) where {S, T}
     
-    # Матрица Кпрод
+    # PI matrix
     J = getfield(prob.params, S)
     
-    # Ссылка на изменяемые элементы вектора обратных значений Кпрод
+    # References to fitting elements of the vector of reciprocal PI
     df_S = getparams(df, Val(S))
     xviews = view(J⁻¹, axes(df_S, 1)[.!df_S.Ignore])
 
-    # Ссылка на изменяемые элементы матрицы Кпрод
+    # References to fitting elements of the PI matrix
     df_S = getparams(df, Val(S), Val(:var))
     pviews, yviews = @with df_S begin
         view.(Ref(J), :Istart, UnitRange.(:Jstart, :Jstop)),
         view(J, CartesianIndex.(:Istart, :Jstart))
     end
 
-    # Ссылка на коэффициент эффективности закачки (нужен только для S == Jinj)
+    # References to injection efficiency factor (needed only for S == Jinj)
     idx = replace(df_S.Link, missing => 1)
     df_λ = view(getparams(df, Val(:λ)), idx, :)
     λviews = @with df_λ begin
@@ -183,7 +183,7 @@ end
 
 function PbhpTargetTerm{T}(df_rates::AbstractDataFrame, df_params::AbstractDataFrame, idx, α) where {T}
 
-    # Список всех значений Кпрод
+    # List of all values of PI
     df_view = getparams(df_params, Val(:Gw))
     Pobs, Wobs, Qobs = @with df_rates begin
         :Pbhp_prod[vec(idx)], 
@@ -191,10 +191,10 @@ function PbhpTargetTerm{T}(df_rates::AbstractDataFrame, df_params::AbstractDataF
         (:Qliq ./ :Total_mobility)[vec(idx)]
     end
     
-    # Расчетчик для Кпрод
+    # Solver for PI
     solver = WellIndexSolver{T}(df_view, Qobs, Wobs, size(idx), α)
    
-    # Параметры для расчета Кпрод
+    # Parameters for calculating PI
     params = (
         Pobs = replace(Pobs, missing => zero(T)),
         Wobs = T(2) .* α .* replace(Wobs, missing => zero(T)),
@@ -208,7 +208,7 @@ end
 
 function PinjTargetTerm{T}(df_rates::AbstractDataFrame, df_params::AbstractDataFrame, prob::NonlinearProblem{T}, idx, α) where {T}
 
-    # Список всех значений Кпрод
+    # List of all values of PI
     df_view = getparams(df_params, Val(:Jinj))
     Pobs, Wobs, Qobs = @with df_rates begin
         :Pbhp_inj[vec(idx)],
@@ -216,10 +216,10 @@ function PinjTargetTerm{T}(df_rates::AbstractDataFrame, df_params::AbstractDataF
         .-:Qinj[vec(idx)]
     end
 
-    # Расчетчик для Кпрод
+    # Solver for PI
     solver = WellIndexSolver{T}(df_view, Qobs, Wobs, size(idx), α)
 
-    # Параметры для расчета Кпрод
+    # Parameters needed for calculating PI
     params = (
         Pobs = replace(Pobs, missing => zero(T)),
         Wobs = T(2) .* α .* replace(Wobs, missing => zero(T)),
@@ -232,7 +232,7 @@ function PinjTargetTerm{T}(df_rates::AbstractDataFrame, df_params::AbstractDataF
     gviews = collect(eachcol(params.g))
     gλviews = collect(eachcol(params.gλ))
     
-    # Ссылка на коэффициент эффективности закачки
+    # References to injection efficiency factors
     df_λ = view(getparams(df_params, Val(:λ)), df_view.Link, :)
     λviews = @with df_λ begin
         view(prob.params.λ, CartesianIndex.(:Istart, :Jstart))
@@ -252,12 +252,12 @@ end
 
 function TargetFunction{T}(df_rates::AbstractDataFrame, df_params::AbstractDataFrame, prob::NonlinearProblem{T}, fset::FittingSet{T}, α) where {T}
     
-    # Линейная индексация
+    # Linear indexing
     Nt = size(prob.C, 2)
     Nd = length(prob.pviews)
     idx = LinearIndices((Nd, Nt))'
 
-    # Отдельные члены целевой функции
+    # Separate terms of objective function
     terms = @with df_rates begin (
         Pres = PresTargetTerm{T}(df_rates, idx, α["alpha_resp"]),
         Pbhp = PbhpTargetTerm{T}(df_rates, df_params, idx, α["alpha_bhp"]),
@@ -267,7 +267,7 @@ function TargetFunction{T}(df_rates::AbstractDataFrame, df_params::AbstractDataF
         L2 = L2TargetTerm{T}(df_params, fset.cache.ybuf, α["alpha_l2"]),
     ) end
 
-    # Ссылки на параметры скважин
+    # References to well parameters
     wviews = (
         Jp = WellIndexViews{:Jp, T}(df_params, prob, terms.Pbhp.solver.J⁻¹),
         Jinj = WellIndexViews{:Jinj, T}(df_params, prob, terms.Pinj.solver.J⁻¹),
@@ -278,7 +278,7 @@ function TargetFunction{T}(df_rates::AbstractDataFrame, df_params::AbstractDataF
 end
 
 function update_targ!(targ::TargetFunction)
-    # FIXED: Использование 'map' вместо 'for' сохраняет 'type-stability'
+    # FIXED: Using 'map' instead of 'for' preserves 'type-stability'
     map(term -> update_term!(term, targ.prob), values(targ.terms))
     return targ
 end
@@ -378,7 +378,7 @@ end
 function grad!(g, targ::TargetFunction{T}, n) where {T}    
     fill!(g, zero(T))
     terms = @inbounds values(targ.terms)[1:end-1]
-    # FIXED: Использование 'map' вместо 'for' сохраняет 'type-stability'
+    # FIXED: Using 'map' instead of 'for' preserves 'type-stability'
     map(term -> (g .+= @inbounds term.gviews[n]), terms)
     return g
 end

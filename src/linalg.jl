@@ -49,8 +49,8 @@ function SparseLinearSolver{T}(prob::NonlinearProblem{T}; reorder::Symbol=:none)
     Nt = size(prob.C, 2)
     Nd = length(prob.pviews)
     A = spdiagm(ones(T, Nt))
-    perm = getperm(prob, Val(reorder)) # способ переупорядочивания матрицы
-    Fsym = cholesky(A; perm) # символьное разложение
+    perm = getperm(prob, Val(reorder)) # matrix reordering scheme
+    Fsym = cholesky(A; perm) # symbolic factorization
     Fbuf = fill(Fsym, Nd)
     SparseLinearSolver{T}(A, Fsym, Fbuf, perm)
 end
@@ -58,7 +58,7 @@ end
 function solve!(x, b, n, solver::DenseLinearSolver)
     @unpack Abuf, Fbuf = solver
     @inbounds Fbuf[n] = cholesky!(Abuf[n], Val(true))
-    # TODO: Почему-то быстрее, чем 'ldiv!'
+    # TODO: Somehow faster than 'ldiv!'
     x .= @inbounds Fbuf[n] \ b
     return x
 end
@@ -66,7 +66,7 @@ end
 function solve!(x, b, n, solver::RecursiveLinearSolver)
     @unpack Abuf, Fbuf, threshold = solver
     @inbounds Fbuf[n] = RecursiveFactorization.lu!(Abuf[n], Val(true); threshold)
-    # TODO: Почему-то быстрее, чем 'ldiv!'
+    # TODO: Somehow faster than 'ldiv!'
     x .= @inbounds Fbuf[n] \ b    
     return x
 end
@@ -77,7 +77,7 @@ function solve!(x, b, n, solver::SparseLinearSolver)
         @inbounds Fbuf[n] = cholesky(A)
         x .= @inbounds Fbuf[n] \ b
     else
-        # FIXED: Если был задан непустой 'perm', то способ переупорядочивания уже содержится в 'Fsym'
+        # FIXED: If a non-empty 'perm' was given, then the reordering method is already contained in 'Fsym'
         cholesky!(Fsym, A)
         x .= Fsym \ b
     end    

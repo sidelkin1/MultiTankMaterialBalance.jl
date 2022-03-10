@@ -29,23 +29,23 @@ function solve!(solver::AdjointSolver{T}; verbose=false) where {T}
         @unpack jac_next = prob.pviews[n]
         jac = linalg.Fbuf[n]        
 
-        # Вычисление сопряженного вектора
+        # Adjoint vector calculation
         grad!(gp, targ, n)
         @turbo for i = 1:length(gp)
             gp[i] = -(jac_next[i] * μ[i] + gp[i])
         end
-        # TODO: Почему-то быстрее, чем 'ldiv!'
+        # TODO: Somehow faster than 'ldiv!'
         μ .= jac \ gp
         
-        # Вычисление градиента по параметрам
+        # Gradient calculation with respect to parameters
         grad!(g, fset, prob, targ, μ, n)
 
         verbose && println("n: $n, mu: $μ")
     end
 
-    # Градиент L2-члена целевой функции
+    # Gradient of the L2 term of the objective function
     grad!(g, targ.terms.L2)    
-    # Коррекция градиента в соответствии с масштабированием параметров
+    # Gradient correction according to parameter scaling
     unscaleg!(g, fset.scale)
 
     return solver

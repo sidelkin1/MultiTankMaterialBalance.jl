@@ -23,7 +23,7 @@ function read_rates(path, opts)
         :Pres_min => Float64,
         :Pres_max => Float64        
     )
-    # TODO: Принудительно убрано преобразование столбцов в 'PooledArray' (хотя неэффективно с точки зрения памяти)
+    # TODO: Forced column conversion to 'PooledArray' removed (albeit memory inefficient)
     opts_csv = Dict(
         :dateformat => opts["dateformat"],
         :delim => opts["delim"],
@@ -32,14 +32,14 @@ function read_rates(path, opts)
     )
     df = CSV.File(opencsv(path); opts_csv...) |> DataFrame
 
-    # Убираем веса на пропущенные замеры давлений
+    # Removing weights for missed pressure measurements
     @with df begin
         @. :Wres[ismissing(:Pres)] = missing
         @. :Wbhp_prod[ismissing(:Pbhp_prod)] = missing
         @. :Wbhp_inj[ismissing(:Pbhp_inj)] = missing
     end
 
-    # Сортируем по датам
+    # Sort by dates
     sort!(df, [:Field, :Tank, :Date])
 
     return df
@@ -59,7 +59,7 @@ function read_params(path, opts)
         :Max_value => Float64,
         :alpha => Float64
     )
-    # TODO: Принудительно убрано преобразование столбцов в 'PooledArray' (хотя неэффективно с точки зрения памяти)
+    # TODO: Forced column conversion to 'PooledArray' removed (albeit memory inefficient)
     opts_csv = Dict(
         :dateformat => opts["dateformat"],
         :delim => opts["delim"],
@@ -68,17 +68,17 @@ function read_params(path, opts)
     )
     df = CSV.File(opencsv(path); opts_csv...) |> DataFrame
     
-    # Заполняем пропущенные значения
+    # Fill in the missing values
     crit = ismissing.(df.Neighb)
     df[crit, :Neighb] .= df[crit, :Tank]
-    # TODO Для преобразования 'Union{Missing, String}' в 'String'
+    # TODO: To convert 'Union{Missing, String}' to 'String'
     df.Neighb = convert.(String, df.Neighb)    
 
-    # Преобразуем 'String' в 'Symbol'
+    # Convert 'String' to 'Symbol'
     df.Parameter = Symbol.(df.Parameter)
     replace!(df.Parameter, PSYMS...)
 
-    # Сортируем по датам
+    # Sort by dates
     @eachrow!(df, (:Tank, :Neighb) = sort!([:Tank, :Neighb]))
     sort!(df, [:Parameter, :Field, :Tank, :Neighb, :Date])
 
@@ -99,8 +99,8 @@ function set_null_weights!(weight, df::AbstractDataFrame, name::Symbol)
     df_view = getparams(df, Val(name), Val(:const))
     @with df_view @byrow begin
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
-        # TODO: Выбрано умножение для 'missing propagation',
-        # т.е. (missing * число => missing)
+        # TODO: Multiplication selected for 'missing propagation',
+        # i.e. (missing * number => missing)
         weight[rows, :Istart::Int] .*= zero(eltype(weight))
     end
     return weight
@@ -108,7 +108,7 @@ end
 
 function process_params!(df_params::AbstractDataFrame, df_rates::AbstractDataFrame)
 
-    # Нумеруем названия блоков и даты
+    # Numbering tank names and dates
     numberof(data) = @_ data |> 
                     unique(__) |> 
                     Dict(__ .=> 1:length(__))
@@ -116,33 +116,33 @@ function process_params!(df_params::AbstractDataFrame, df_rates::AbstractDataFra
     dates = numberof(df_rates.Date::Vector{Date})
     N = length(dates)
 
-    # Добавляем номер блока и начало периода параметра
+    # Add the tank number and the beginning of the parameter period
     @transform! df_params begin
         :Istart = getindex.(Ref(tanks), :Tank::Vector{String})        
         :Jstart = getindex.(Ref(dates), :Date::Vector{Date})
     end
 
-    # Для параметров соединений ставим номер соединения
+    # For connection parameters, set the connection number
     df = getparams(df_params, Val(:Tconn))
     @with df begin
         connections = numberof(eachrow([:Tank :Neighb]::Matrix{String}))
         :Istart .= getindex.(Ref(connections), eachrow([:Tank :Neighb]))
     end
     
-    # Добавляем конец периода параметра
+    # Adding the end of the parameter period
     df = groupby(df_params, [:Parameter, :Field, :Tank, :Neighb])
     @transform!(df, :Jstop = [:Jstart[2:end] .- 1; N])
     
-    # TODO: Дополнительно дробим (если требуется) интервалы закрепления 'Jinj',
-    # чтобы внутри каждого интервале значение 'λ' не менялось бы.
-    # Это значительно упрощает дифференцирование целевой функции по 'P'
+    # TODO: Additionally, we split (if required) the intervals of fixing 'Jinj',
+    # so that within each interval the value of 'λ' would not change.
+    # This makes it much easier to differentiate the objective function with respect to 'P'
     split_params!(df_params, :λ, :Jinj)
 
-    # Помечаем параметры, не требующие настройки
+    # Marking parameters that do not require fitting
     @transform!(df_params, :Const = :Min_value .== :Max_value)
     @transform!(df_params, :Ignore = :Const .& (:Init_value .≠ :Min_value))
     
-    # Часть параметров можно сразу исключать из настройки
+    # Some parameters can be immediately excluded from the fitting
     crits = @with df_rates begin (
         λ = (:Qinj .== 0)::BitVector,
         Jp = (@. (ismissing(:Pbhp_prod) 
@@ -158,7 +158,7 @@ function process_params!(df_params::AbstractDataFrame, df_rates::AbstractDataFra
         mark_null_params!(df_params, key, reshape(values, N, :))
     end
 
-    # Принудительно зануляются веса замеров для игнорируемых параметров (Ignore == true)
+    # Forcing weights of measurements for ignored parameters to zero (Ignore == true)
     crits = @with df_rates begin (
         Jp = :Wbhp_prod,
         Jinj = :Wbhp_inj,
@@ -167,7 +167,7 @@ function process_params!(df_params::AbstractDataFrame, df_rates::AbstractDataFra
         set_null_weights!(reshape(values, N, :), df_params, key)
     end
 
-    # Добавляем вместо Кпрод геом. факторы скважин для настройки
+    # Instead of well's PI we add well's geometric factor to fit
     crits = @with df_rates begin (
         Jp = :Total_mobility,
     ) end
@@ -203,11 +203,11 @@ function save_params!(df::AbstractDataFrame, fset::FittingSet, targ::TargetFunct
 
     @transform!(df, :Calc_value = :Init_value)    
 
-    # Заполняем параметры блоков
+    # Fill in tank parameters
     df_view = getparams(df, Val(:tanks), Val(:var))
     copyto!(df_view.Calc_value, fset.cache.ybuf)
 
-    # Заполняем параметры скважин
+    # Fill in the parameters of the wells
     df_view = getparams(df, Val(:Gw), Val(:var))    
     copyto!(df_view.Calc_value, targ.wviews.Gw.yviews)
     df_view = getparams(df, Val(:Jinj), Val(:var))
@@ -215,7 +215,7 @@ function save_params!(df::AbstractDataFrame, fset::FittingSet, targ::TargetFunct
     df_view = getparams(df, Val(:Jp), Val(:var))
     copyto!(df_view.Calc_value, targ.wviews.Jp.yviews)
 
-    # Переименовываем и убираем лишние столбцы 
+    # Rename and remove extra columns
     replace!(df.Parameter, reverse.(PSYMS)...)
     select!(df, Not([:Istart, :Jstart, :Jstop, :Link, :Const, :Ignore])) 
 
@@ -232,7 +232,7 @@ function split_params!(df::AbstractDataFrame, src::Symbol, dst::Symbol)
     df_dst = getparams(df, Val(dst))
 
     df_new = map(eachrow(df_dst)) do dfr
-        # Критерий пересечения интервалов
+        # Interval intersection criterion
         crit = @with df_src begin
             @. (dfr.Istart == :Istart) & 
                 (
@@ -243,24 +243,24 @@ function split_params!(df::AbstractDataFrame, src::Symbol, dst::Symbol)
                         (dfr.Jstop >= :Jstart))
                 )
         end        
-        # Разбивка с учетом критерия пересечения
+        # Split based on intersection criterion
         @transform! df_src[crit, :] begin
-            # Дублируем частично информацию 
+            # Duplicate information partially
             :Parameter = dfr.Parameter
             :Init_value = dfr.Init_value
             :Min_value = dfr.Min_value
             :Max_value = dfr.Max_value
             :alpha = dfr.alpha
-            # Корректируем начало и конец периода закрепления
+            # Correcting the beginning and end of the fixing period
             :Date = [dfr.Date; :Date[2:end]]
             :Jstart = [dfr.Jstart; :Jstart[2:end]]
             :Jstop = [:Jstop[1:end-1]; dfr.Jstop]
-            # Ссылка на источник
+            # Link to source
             :Link = axes(df_src, 1)[crit]
         end
     end |> items -> vcat(items...)
 
-    # Формируем новый список интервалов закрепления
+    # Forming a new list of fixing intervals
     delete!(df, df.Parameter .=== dst)
     append!(df, df_new; cols=:union)
 
@@ -269,45 +269,45 @@ end
 
 function add_geom_factor!(df::AbstractDataFrame, name::Symbol, mobt)
        
-    # Копируем Кпрод для расчета геом. фактора
+    # Copy PI to calculate the geometric factor
     df_new = df[df.Parameter .=== name, :]
 
-    # Рассчитываем геом. факторы скважин
+    # Calculate well geometric factors
     @eachrow! df_new begin
-        # Динамика изменения подвижности фдюида
+        # Fluid mobility over time
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
         mobt_ = @view mobt[rows, :Istart::Int]
 
-        # Делаем единичную подвижность, если требуется постоянный Кпрод
+        # We do mobility equals to one if constant PI is required
         :Const && (mobt_ .= one(eltype(mobt)))
 
-        # Текущее и мин./макс. значения подвижности        
+        # Current, min and max mobilities
         Minit = first(mobt_)
         Mmin, Mmax = extrema(mobt_)        
 
-        # Пересчет Кпрод => геом. фактор        
+        # Mapping PI => geometric factor
         :Init_value /= Minit
         :Min_value /= Mmin
         :Max_value /= Mmax
         
-        # Обрабатываем случай, когда Gmin > Gmax
+        # Handle the case when Gmin > Gmax
         if :Max_value < :Min_value
-            # Корректируем мин./макс. подвижность, чтобы Gmin == Gmax
+            # Correct min/max mobilities that is Gmin == Gmax
             Mmin *= √(:Min_value / :Max_value)
             Mmax *= √(:Max_value / :Min_value)            
             clamp!(mobt_, Mmin, Mmax)
-            # Рассчитываем новые Gmin, Gmax
+            # Calculate new Gmin, Gmax
             :Min_value = :Max_value = √(:Min_value * :Max_value)            
         end
 
-        # Помещаем значения в допустимые пределы
+        # Putting values within admissible limits
         :Init_value = clamp(:Init_value, :Min_value, :Max_value)        
         :Const |= :Min_value .== :Max_value
     end
 
-    # Удаляем старую информацию
+    # Removing old information (if presented)
     delete!(df, df.Parameter .=== :Gw)
-    # Добавляем геом. факторы скважин
+    # Add well geometric factors
     df_new.Parameter .= :Gw
     append!(df, df_new)
 
