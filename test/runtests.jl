@@ -4,7 +4,7 @@ using Test
 
 const Float = Float64
 
-# Функция для вычисления значения и градиента целевой функции
+# Function to calculate the value and gradient of the objective function
 function fun(fset::FittingSet, solver::NewtonSolver, targ::TargetFunction, adjoint::AdjointSolver)
     return (x, grad) -> begin
         setparams!(fset, x)
@@ -19,57 +19,58 @@ function fun(fset::FittingSet, solver::NewtonSolver, targ::TargetFunction, adjoi
 end
 
 @testset "MultiTankMaterialBalance.jl" begin
-    # Путь к csv-файлам с исходными данными
+    # Path to csv files with source data
     workdir = "./data"    
 
-    # Исходные данные для расчета
+    # Initial data for calculation
     opts_csv = Dict("dateformat" => "dd.mm.yyyy", "delim" => ";")
     df_rates = read_rates(joinpath(workdir, "tank_prod.csv"), opts_csv)
     df_params = read_params(joinpath(workdir, "tank_params.csv"), opts_csv)
 
-    # Дополнительная предобработка параметров
+    # Additional parameter preprocessing
     process_params!(df_params, df_rates)
 
-    # Описание прямой задачи
+    # Description of the forward problem
     prob = NonlinearProblem{Float}(df_rates, df_params)
 
-    # Способ решения СЛАУ
+    # Linear equation solver
     linalg = DenseLinearSolver{Float}(prob)
 
-    # Алгоритм решения прямой задачи
+    # Algorithm to solve forward problem
     opts_nsol = Dict("maxiters" => 10, "P_tol" => 1e-7, "r_tol" => 1e-5)
     solver = NewtonSolver{Float}(prob, linalg, opts_nsol)
     
+    # Solve forward problem
     solve!(solver)
     @test solver.success
 
-    # Способ масштабирования параметров
+    # Parameter scaling method
     scale = SigmoidScaling{Float}(df_params)
 
-    # Список оптимизируемых параметров
+    # Fitting parameter list
     fset = FittingSet{Float}(df_params, prob, scale)
 
-    # Целевая функция
+    # Objective function
     opts_targ = Dict("alpha_resp" => 1, "alpha_bhp" => 0.01, "alpha_inj" => 0.01, "alpha_lb" => 10, "alpha_ub" => 10, "alpha_l2" => 1)
     targ = TargetFunction{Float}(df_rates, df_params, prob, fset, opts_targ)
 
-    # Алгоритм расчета градиента целевой функции
+    # Algorithm to calculate objective function gradient
     adjoint_ = AdjointSolver{Float}(prob, targ, linalg, fset)
 
-    # Функция для вычисления значения и градиента целевой функции
+    # Function to calculate the value and gradient of the objective function
     optim_fun = fun(fset, solver, targ, adjoint_)
 
-    # Начальное значение параметров
+    # Initial parameter values
     initial_x = copy(getparams!(fset))
-    # Массив для хранения градиента
+    # Preallocate gradient buffer
     grad = similar(initial_x)
 
-    # Вычисление градиента методом конечных разностей
+    # Computing the gradient by the finite difference method
     grad_fd = FiniteDiff.finite_difference_gradient(x -> optim_fun(x, Float[]), initial_x, Val(:central); relstep=1e-5)
 
-    # Вычисление градиента методом сопряженных уравнений
+    # Computing the gradient by the adjoint equation method
     _ = optim_fun(initial_x, grad)
 
-    # Сравниваем градиенты, вычисленные различными способами
+    # Comparing gradients computed in different ways
     @test all(isapprox.(grad, grad_fd; rtol=0.0001))
 end
