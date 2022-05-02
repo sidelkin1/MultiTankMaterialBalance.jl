@@ -87,11 +87,11 @@ end
 
 function mark_null_params!(df::AbstractDataFrame, name::Symbol, isnull)
     df_view = getparams(df, Val(name))
-    df_view.Ignore .|= @with df_view @byrow begin
+    df_view[!, :Ignore] .|= @with df_view @byrow begin
         rows = UnitRange(:Jstart::Int, :Jstop::Int)
         all(isnull[rows, :Istart::Int])
     end
-    df_view.Const .|= df_view.Ignore
+    df_view[!, :Const] .|= df_view.Ignore
     return df
 end
 
@@ -261,7 +261,7 @@ function split_params!(df::AbstractDataFrame, src::Symbol, dst::Symbol)
     end |> items -> vcat(items...)
 
     # Forming a new list of fixing intervals
-    delete!(df, df.Parameter .=== dst)
+    deleteat!(df, df.Parameter .=== dst)
     append!(df, df_new; cols=:union)
 
     return df
@@ -306,9 +306,9 @@ function add_geom_factor!(df::AbstractDataFrame, name::Symbol, mobt)
     end
 
     # Removing old information (if presented)
-    delete!(df, df.Parameter .=== :Gw)
+    deleteat!(df, df.Parameter .=== :Gw)
     # Add well geometric factors
-    df_new.Parameter .= :Gw
+    df_new[!, :Parameter] .= :Gw
     append!(df, df_new)
 
     return df
