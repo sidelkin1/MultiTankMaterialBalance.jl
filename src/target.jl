@@ -286,7 +286,7 @@ end
 function update_term!(term::PresTargetTerm, prob::NonlinearProblem)
     @unpack Pcalc = prob.params
     @unpack Wobs, Pobs, ΔP, g = term
-    @turbo for i = 1:length(Pcalc)
+    @turbo for i ∈ eachindex(Pcalc)
         ΔP[i] = Pcalc[i] - Pobs[i]
         g[i] = Wobs[i] * ΔP[i]
     end
@@ -299,7 +299,7 @@ compare(Pcalc, Pobs, ::Val{:Pmax}) = Pcalc > Pobs
 function update_term!(term::PresBoundTerm{S}, prob::NonlinearProblem) where {S}
     @unpack Pcalc = prob.params
     @unpack Pobs, Wobs, ΔP, g = term
-    @turbo for i = 1:length(Pcalc)
+    @turbo for i ∈ eachindex(Pcalc)
         W = compare(Pcalc[i], Pobs[i], Val(S))
         ΔP[i] = Pcalc[i] - Pobs[i]
         g[i] = W * Wobs[i] * ΔP[i]
@@ -310,7 +310,7 @@ end
 function solve!(g, solver::WellIndexSolver, ΔP)
     @unpack J⁻¹, J⁻¹min, J⁻¹max, B, W, lb, ub = solver
     mul!(J⁻¹, B, ΔP)    
-    @turbo for i = 1:length(J⁻¹)
+    @turbo for i ∈ eachindex(J⁻¹)
         lb[i] = J⁻¹[i] < J⁻¹min[i]
         ub[i] = J⁻¹[i] > J⁻¹max[i]
         J⁻¹[i] = clamp(J⁻¹[i], J⁻¹min[i], J⁻¹max[i])
@@ -323,11 +323,11 @@ function update_term!(term::PbhpTargetTerm, prob::NonlinearProblem)
     @unpack Pcalc = prob.params
     @unpack Pobs, Wobs, ΔP, g = term
     @unpack W, ΔPmin, ΔPmax, lbviews, ubviews = term.solver
-    @turbo for i = 1:length(Pcalc)
+    @turbo for i ∈ eachindex(Pcalc)
         ΔP[i] = Pcalc[i] - Pobs[i]
     end
     solve!(vec(g), term.solver, ΔP)
-    @inbounds @simd for i = 1:length(ΔP)
+    @inbounds @simd for i ∈ eachindex(ΔP)
         if lbviews[i]
             ΔP[i] -= ΔPmin[i]
             g[i] = Wobs[i] * ΔP[i]
@@ -344,15 +344,15 @@ function update_term!(term::PinjTargetTerm{T}, prob::NonlinearProblem) where {T}
     @unpack Pobs, Wobs, ΔP, g = term
     @unpack gλ, J⁻¹min_h, J⁻¹max_h, λviews = term
     @unpack W, ΔPmin, ΔPmax, lbviews, ubviews, J⁻¹min, J⁻¹max = term.solver
-    @turbo for i = 1:length(Pcalc)
+    @turbo for i ∈ eachindex(Pcalc)
         ΔP[i] = Pcalc[i] - Pobs[i]
     end
-    @inbounds @simd for i = 1:length(λviews)
+    @inbounds @simd for i ∈ eachindex(λviews)
         J⁻¹min[i] = λviews[i] * J⁻¹min_h[i]
         J⁻¹max[i] = λviews[i] * J⁻¹max_h[i]
     end
     solve!(vec(g), term.solver, ΔP)
-    @inbounds @simd for i = 1:length(ΔP)        
+    @inbounds @simd for i ∈ eachindex(ΔP)        
         if lbviews[i]
             ΔP[i] -= λ[i] * ΔPmin[i]
             g[i] = Wobs[i] * ΔP[i]
@@ -370,7 +370,7 @@ end
 
 function update_term!(term::L2TargetTerm, prob::NonlinearProblem)
     @unpack g, x, αₓ = term
-    @turbo for i = 1:length(g)
+    @turbo for i ∈ eachindex(g)
         g[i] = αₓ[i] * x[i]
     end
 end
@@ -389,7 +389,7 @@ getvalues(targ::TargetFunction) = map(getvalue, targ.terms)
 function getvalue(term::AbstractTargetTerm{T}) where {T}
     @unpack ΔP, g = term
     val = zero(T)
-    @turbo for i = 1:length(ΔP)
+    @turbo for i ∈ eachindex(ΔP)
         val += ΔP[i] * g[i]
     end
     return T(0.5) * val
@@ -398,7 +398,7 @@ end
 function getvalue(term::L2TargetTerm{T}) where {T}
     @unpack x, g = term
     val = zero(T)
-    @turbo for i = 1:length(x)
+    @turbo for i ∈ eachindex(x)
         val += x[i] * g[i]
     end
     return T(0.5) * val
@@ -412,10 +412,10 @@ end
 function calc_well_index!(prob::NonlinearProblem, wviews::WellIndexViews{:Gw})
     @unpack xviews, pviews = wviews
     @unpack Pcalc, Pbhp, Jp, M, Gw, Qliq_h = prob.params
-    @inbounds @simd for i = 1:length(xviews)
+    @inbounds @simd for i ∈ eachindex(xviews)
         fill!(pviews[i], inv(xviews[i]))
     end
-    @turbo for i = 1:length(Pcalc)
+    @turbo for i ∈ eachindex(Pcalc)
         Jp[i] = Gw[i] * M[i]
         Pbhp[i] = Pcalc[i] - Qliq_h[i] / Jp[i]
     end
@@ -424,10 +424,10 @@ end
 function calc_well_index!(prob::NonlinearProblem, wviews::WellIndexViews{:Jinj})
     @unpack xviews, pviews, λviews = wviews
     @unpack Pcalc, Pinj, Jinj, Qinj_h, λ = prob.params
-    @inbounds @simd for i = 1:length(xviews)
+    @inbounds @simd for i ∈ eachindex(xviews)
         fill!(pviews[i], λviews[i] * inv(xviews[i]))
     end
-    @turbo for i = 1:length(Pcalc)        
+    @turbo for i ∈ eachindex(Pcalc)        
         Pinj[i] = Pcalc[i] + λ[i] * Qinj_h[i] / Jinj[i]
     end
 end

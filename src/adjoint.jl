@@ -31,7 +31,7 @@ function solve!(solver::AdjointSolver{T}; verbose=false) where {T}
 
         # Adjoint vector calculation
         grad!(gp, targ, n)
-        @turbo for i = 1:length(gp)
+        @turbo for i ∈ eachindex(gp)
             gp[i] = -(jac_next[i] * μ[i] + gp[i])
         end
         # TODO: Somehow faster than 'ldiv!'

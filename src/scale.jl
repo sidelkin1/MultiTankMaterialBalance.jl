@@ -26,14 +26,14 @@ end
 
 function scalex!(x, y, scale::LinearScaling{T}) where {T}
     @unpack xrange, xmin = scale
-    @turbo for i = 1:length(x)
+    @turbo for i ∈ eachindex(x)
         x[i] = clamp(xmin[i] + y[i] / xrange[i], zero(T), one(T))
     end
 end
 
 function scalex!(x, y, scale::SigmoidScaling{T}) where {T}
     @unpack xrange, xmin = scale    
-    @turbo for i = 1:length(x)
+    @turbo for i ∈ eachindex(x)
         zmin = T(0.0001) / xrange[i]
         z = clamp(xmin[i] + y[i] / xrange[i], zmin, one(T) - zmin)
         x[i] = log(z / (one(T) - z))
@@ -42,14 +42,14 @@ end
 
 function unscalex!(y, x, scale::LinearScaling)
     @unpack xrange, xmin = scale
-    @turbo for i = 1:length(y)
+    @turbo for i ∈ eachindex(y)
         y[i] = (x[i] - xmin[i]) * xrange[i]
     end
 end
 
 function unscalex!(y, x, scale::SigmoidScaling{T}) where {T}
     @unpack xrange, xmin, xsigm = scale
-    @turbo for i = 1:length(y)
+    @turbo for i ∈ eachindex(y)
         xsigm[i] = one(T) / (one(T) + exp(-x[i]))
         y[i] = xrange[i] * (xsigm[i] - xmin[i])
     end
@@ -57,14 +57,14 @@ end
 
 function unscaleg!(g, scale::LinearScaling)
     @unpack xrange = scale
-    @turbo for i = 1:length(g)
+    @turbo for i ∈ eachindex(g)
         g[i] *= xrange[i]
     end
 end
 
 function unscaleg!(g, scale::SigmoidScaling{T}) where {T}
     @unpack xrange, xsigm = scale
-    @turbo for i = 1:length(g)
+    @turbo for i ∈ eachindex(g)
         g[i] *= xrange[i] * xsigm[i] * (one(T) - xsigm[i])
     end
 end

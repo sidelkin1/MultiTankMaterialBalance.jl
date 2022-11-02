@@ -191,7 +191,7 @@ function val_and_jac!(r, J, P, Δt, prob::NonlinearProblem, n)
     mul!(r, CTC, P)
     copyto!(J, CTC)
 
-    @turbo for i = 1:length(P)
+    @turbo for i ∈ eachindex(P)
         # Pore volumes of water and oil in surface conditions
         Vw[i] = Vwi[i] * exp(cwf[i] * (P[i] - Pi[i]))
         Vo[i] = Voi[i] * exp(cof[i] * (P[i] - Pi[i]))
@@ -206,7 +206,7 @@ function val_and_jac!(r, J, P, Δt, prob::NonlinearProblem, n)
 
     # Update the main diagonal of the Jacobian
     # TODO: We took it out from previous loop, because macro '@turbo' does not work with 'Sparse Arrays'
-    @inbounds @simd for i = 1:length(diagJ)        
+    @inbounds @simd for i ∈ eachindex(diagJ)        
         J[i, i] += diagJ[i]
     end    
 

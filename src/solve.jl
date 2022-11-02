@@ -44,7 +44,7 @@ function prepare_step!(prob::NonlinearProblem, n, P)
     @unpack Qsum = prob.cache
 
     update_cache!(prob, n)
-    @turbo for i = 1:length(P)   
+    @turbo for i ∈ eachindex(P)   
         # Correction of rates taking into account the upper and lower bounds of pressure
         Qliq[i] = (P[i] ≥ Pmin[i]) * Qliq_h[i]
         Qinj[i] = (P[i] ≤ Pmax[i]) * Qinj_h[i]
@@ -66,7 +66,7 @@ function accept_step!(prob::NonlinearProblem, n, P)
     copyto!(Voprev, Vo)
 
     # The diagonal of the jacobian with respect to reservoir pressure on the previous time step
-    @turbo for i = 1:length(P)        
+    @turbo for i ∈ eachindex(P)        
         jac_next[i] = -(Vw[i] * cwf[i] + Vo[i] * cof[i]) / Δt[]
     end
 
@@ -81,7 +81,7 @@ function update_cache!(prob::NonlinearProblem{T}, n) where {T}
     if params.Vupd[]
         @unpack Vpi, Swi, Bwi, Boi = params
         @unpack Vwi, Voi = prob.cache
-        @turbo for i = 1:length(Vpi)
+        @turbo for i ∈ eachindex(Vpi)
             Vwi[i] = Swi[i] * Vpi[i] / Bwi[i]
             Voi[i] = (one(T) - Swi[i]) * Vpi[i] / Boi[i]
         end
@@ -102,7 +102,7 @@ function update_cache!(prob::NonlinearProblem{T}, n) where {T}
     if params.cupd[]
         @unpack cw, co, cf = params
         @unpack cwf, cof = prob.cache        
-        @turbo for i = 1:length(cf)
+        @turbo for i ∈ eachindex(cf)
             cwf[i] = cw[i] + cf[i]
             cof[i] = co[i] + cf[i]
         end

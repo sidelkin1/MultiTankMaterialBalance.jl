@@ -134,7 +134,7 @@ function setparams!(fset::FittingSet, xnew)
     map(params) do param
         @unpack xviews, pviews = param
         # FIXED: Faster than 'fill!.(pviews, xviews)'
-        @inbounds @simd for i = 1:length(xviews)
+        @inbounds @simd for i ∈ eachindex(xviews)
             fill!(pviews[i], xviews[i])
         end
     end
