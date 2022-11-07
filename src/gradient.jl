@@ -62,13 +62,15 @@ function grad!(cache::FittingCache{T}, param::FittingParameter{:Vpi, T}, prob::N
 
     @turbo for i ∈ eachindex(tbuf)
         ΔP = Pcalcⁿ[i] - Piⁿ[i]
-        tbuf[i] = Swiⁿ[i] / Bwiⁿ[i] * exp((cwⁿ[i] + cfⁿ[i]) * ΔP)
-        tbuf[i] += (one(T) - Swiⁿ[i]) / Boiⁿ[i] * exp((coⁿ[i] + cfⁿ[i]) * ΔP)
-        tbuf[i] *= μ[i] / Δtⁿ⁻¹[]
-        ΔP = Pcalcⁿ⁻¹[i] - Piⁿ⁻¹[i]
-        tbuf2[i] = Swiⁿ⁻¹[i] / Bwiⁿ⁻¹[i] * exp((cwⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP)
-        tbuf2[i] += (one(T) - Swiⁿ⁻¹[i]) / Boiⁿ⁻¹[i] * exp((coⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP)
-        tbuf2[i] *= μ[i] / Δtⁿ⁻¹[]          
+        tbuf[i] = (
+            Swiⁿ[i] / Bwiⁿ[i] * exp((cwⁿ[i] + cfⁿ[i]) * ΔP)
+            + (one(T) - Swiⁿ[i]) / Boiⁿ[i] * exp((coⁿ[i] + cfⁿ[i]) * ΔP)
+        ) * μ[i] / Δtⁿ⁻¹[]        
+        ΔP2 = Pcalcⁿ⁻¹[i] - Piⁿ⁻¹[i]
+        tbuf2[i] = (
+            Swiⁿ⁻¹[i] / Bwiⁿ⁻¹[i] * exp((cwⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP2)
+            + (one(T) - Swiⁿ⁻¹[i]) / Boiⁿ⁻¹[i] * exp((coⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP2)
+        ) * μ[i] / Δtⁿ⁻¹[]        
     end
     @inbounds @simd for i ∈ eachindex(bviews)
         gviews[i] = bviews[i] * Vⁿ[i] - bviews2[i] * Vⁿ⁻¹[i]
@@ -88,13 +90,15 @@ function grad!(cache::FittingCache{T}, param::FittingParameter{:cf, T}, prob::No
 
     @turbo for i ∈ eachindex(tbuf)
         ΔP = Pcalcⁿ[i] - Piⁿ[i]
-        tbuf[i] = Swiⁿ[i] * Vpiⁿ[i] / Bwiⁿ[i] * exp((cwⁿ[i] + cfⁿ[i]) * ΔP) * ΔP
-        tbuf[i] += (one(T) - Swiⁿ[i]) * Vpiⁿ[i] / Boiⁿ[i] * exp((coⁿ[i] + cfⁿ[i]) * ΔP) * ΔP
-        tbuf[i] *= μ[i] / Δtⁿ⁻¹[]
-        ΔP = Pcalcⁿ⁻¹[i] - Piⁿ⁻¹[i]
-        tbuf2[i] = Swiⁿ⁻¹[i] * Vpiⁿ⁻¹[i] / Bwiⁿ⁻¹[i] * exp((cwⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP) * ΔP
-        tbuf2[i] += (one(T) - Swiⁿ⁻¹[i]) * Vpiⁿ⁻¹[i] / Boiⁿ⁻¹[i] * exp((coⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP) * ΔP
-        tbuf2[i] *= μ[i] / Δtⁿ⁻¹[]        
+        tbuf[i] = (
+            Swiⁿ[i] * Vpiⁿ[i] / Bwiⁿ[i] * exp((cwⁿ[i] + cfⁿ[i]) * ΔP) * ΔP
+            + (one(T) - Swiⁿ[i]) * Vpiⁿ[i] / Boiⁿ[i] * exp((coⁿ[i] + cfⁿ[i]) * ΔP) * ΔP
+        ) * μ[i] / Δtⁿ⁻¹[]        
+        ΔP2 = Pcalcⁿ⁻¹[i] - Piⁿ⁻¹[i]
+        tbuf2[i] = (
+            Swiⁿ⁻¹[i] * Vpiⁿ⁻¹[i] / Bwiⁿ⁻¹[i] * exp((cwⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP2) * ΔP2
+            + (one(T) - Swiⁿ⁻¹[i]) * Vpiⁿ⁻¹[i] / Boiⁿ⁻¹[i] * exp((coⁿ⁻¹[i] + cfⁿ⁻¹[i]) * ΔP2) * ΔP2
+        ) * μ[i] / Δtⁿ⁻¹[]        
     end
     @inbounds @simd for i ∈ eachindex(bviews)
         gviews[i] = bviews[i] * Vⁿ[i] - bviews2[i] * Vⁿ⁻¹[i]
