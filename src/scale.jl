@@ -34,8 +34,7 @@ end
 function scalex!(x, y, scale::SigmoidScaling{T}) where {T}
     @unpack xrange, xmin = scale    
     @turbo for i ∈ eachindex(x)
-        zmin = T(0.0001) / xrange[i]
-        z = clamp(xmin[i] + y[i] / xrange[i], zmin, one(T) - zmin)
+        z = clamp(xmin[i] + y[i] / xrange[i], T(0.0001), T(0.9999))
         x[i] = log(z / (one(T) - z))
     end
 end
