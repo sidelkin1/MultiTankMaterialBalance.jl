@@ -293,16 +293,22 @@ function update_term!(term::PresTargetTerm, prob::NonlinearProblem)
     return term
 end
 
-compare(Pcalc, Pobs, ::Val{:Pmin}) = Pcalc < Pobs
-compare(Pcalc, Pobs, ::Val{:Pmax}) = Pcalc > Pobs
-
-function update_term!(term::PresBoundTerm{S}, prob::NonlinearProblem) where {S}
+function update_term!(term::PresBoundTerm{:Pmin}, prob::NonlinearProblem)
     @unpack Pcalc = prob.params
     @unpack Pobs, Wobs, ΔP, g = term
     @turbo for i ∈ eachindex(Pcalc)
-        W = compare(Pcalc[i], Pobs[i], Val(S))
         ΔP[i] = Pcalc[i] - Pobs[i]
-        g[i] = W * Wobs[i] * ΔP[i]
+        g[i] = (Pcalc[i] < Pobs[i]) * Wobs[i] * ΔP[i]
+    end
+    return term
+end
+
+function update_term!(term::PresBoundTerm{:Pmax}, prob::NonlinearProblem)
+    @unpack Pcalc = prob.params
+    @unpack Pobs, Wobs, ΔP, g = term
+    @turbo for i ∈ eachindex(Pcalc)
+        ΔP[i] = Pcalc[i] - Pobs[i]
+        g[i] = (Pcalc[i] > Pobs[i]) * Wobs[i] * ΔP[i]
     end
     return term
 end
